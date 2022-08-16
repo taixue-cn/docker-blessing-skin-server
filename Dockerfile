@@ -34,10 +34,11 @@ RUN apk add --no-cache \
   php81-pdo_pgsql \
   php81-exif \
   php81-pecl-xdebug \
+  composer \
   supervisor
 
 # Create symlink so programs depending on `php` still function
-RUN ln -s /usr/bin/php81 /usr/bin/php
+# RUN ln -s /usr/bin/php81 /usr/bin/php
 
 # Configure nginx
 COPY config/nginx.conf /etc/nginx/nginx.conf
