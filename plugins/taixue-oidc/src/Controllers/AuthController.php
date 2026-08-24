@@ -9,6 +9,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Taixue\Oidc\LinkConsistency;
 use Taixue\Oidc\OidcClient;
 use Taixue\Oidc\RolloutPolicy;
 use Vectorface\Whip\Whip;
@@ -34,8 +35,12 @@ class AuthController
                 return $this->completeLink($flow, $claims);
             }
 
+            $claimedUid = $this->claimedBsUid($claims);
             $link = DB::table('taixue_oidc_links')->where('subject', $claims['sub'])->first();
-            if (!$link && ($claimedUid = $this->claimedBsUid($claims))) {
+            if ($link && $claimedUid) {
+                LinkConsistency::assertSubjectOwner($link, $claimedUid);
+            }
+            if (!$link && $claimedUid) {
                 $link = $this->linkTrustedBsUid($claimedUid, $claims['sub']);
             }
             if (!$link && filter_var(env('TAIXUE_OIDC_AUTO_REGISTER', false), FILTER_VALIDATE_BOOL)) {
@@ -113,6 +118,7 @@ class AuthController
 
             $bySubject = DB::table('taixue_oidc_links')->where('subject', $subject)->lockForUpdate()->first();
             if ($bySubject) {
+                LinkConsistency::assertSubjectOwner($bySubject, $uid);
                 return $bySubject;
             }
             $byUser = DB::table('taixue_oidc_links')->where('uid', $uid)->lockForUpdate()->first();

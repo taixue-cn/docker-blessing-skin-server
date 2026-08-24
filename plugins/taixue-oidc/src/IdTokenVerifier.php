@@ -26,6 +26,11 @@ class IdTokenVerifier
         if (($claims['iss'] ?? null) !== $issuer || !in_array($clientId, $audience, true)) {
             throw new RuntimeException('太学账号身份令牌的签发方或接收方不正确。');
         }
+        $authorizedParty = $claims['azp'] ?? null;
+        if ((count($audience) > 1 && !is_string($authorizedParty)) ||
+            ($authorizedParty !== null && $authorizedParty !== $clientId)) {
+            throw new RuntimeException('太学账号身份令牌的授权客户端不正确。');
+        }
         if (!isset($claims['sub']) || !is_string($claims['sub']) || $claims['sub'] === '') {
             throw new RuntimeException('太学账号身份令牌缺少用户标识。');
         }

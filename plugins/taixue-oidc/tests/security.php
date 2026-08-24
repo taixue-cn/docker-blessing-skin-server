@@ -4,6 +4,7 @@ require __DIR__.'/../vendor/autoload.php';
 
 use Firebase\JWT\JWT;
 use Taixue\Oidc\IdTokenVerifier;
+use Taixue\Oidc\LinkConsistency;
 use Taixue\Oidc\OidcClient;
 use Taixue\Oidc\RolloutPolicy;
 
@@ -76,8 +77,26 @@ if ($verified['bs_uid'] !== 12345) {
 $assertFails(array_merge($baseClaims, ['nonce' => 'replayed']), 'nonce mismatch');
 $assertFails(array_merge($baseClaims, ['iss' => 'https://attacker.invalid']), 'issuer mismatch');
 $assertFails(array_merge($baseClaims, ['aud' => 'another-client']), 'audience mismatch');
+$assertFails(array_merge($baseClaims, ['aud' => [$clientId, 'another-client']]), 'multiple audiences without azp');
+$assertFails(array_merge($baseClaims, ['aud' => [$clientId, 'another-client'], 'azp' => 'another-client']), 'authorized party mismatch');
 $assertFails(array_merge($baseClaims, ['sub' => '']), 'empty subject');
 $assertFails(array_merge($baseClaims, ['exp' => time() - 120]), 'expired token');
+
+$multiAudienceClaims = array_merge($baseClaims, [
+    'aud' => [$clientId, 'another-client'],
+    'azp' => $clientId,
+]);
+$verifier->verify($encode($multiAudienceClaims), $jwks, $issuer, $clientId, $nonce);
+
+LinkConsistency::assertSubjectOwner((object) ['uid' => 12345], 12345);
+try {
+    LinkConsistency::assertSubjectOwner((object) ['uid' => 54321], 12345);
+    throw new RuntimeException('Expected rejection: conflicting signed Blessing Skin UID');
+} catch (RuntimeException $e) {
+    if ($e->getMessage() === 'Expected rejection: conflicting signed Blessing Skin UID') {
+        throw $e;
+    }
+}
 
 $header = $b64(json_encode(['alg' => 'HS256', 'typ' => 'JWT', 'kid' => 'test-key']));
 $payload = $b64(json_encode($baseClaims));
