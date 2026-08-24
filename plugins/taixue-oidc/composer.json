@@ -1,0 +1,14 @@
+{
+  "name": "taixue/blessing-skin-oidc",
+  "description": "Use Taixue OIDC to sign in to Blessing Skin",
+  "type": "blessing-skin-plugin",
+  "license": "MIT",
+  "require": {
+    "firebase/php-jwt": "^7.0.2"
+  },
+  "autoload": {
+    "psr-4": {
+      "Taixue\\Oidc\\": "src/"
+    }
+  }
+}

@@ -1,0 +1,137 @@
+<?php
+
+namespace Taixue\Oidc;
+
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+use RuntimeException;
+
+class OidcClient
+{
+    private const FLOW_TTL_SECONDS = 600;
+
+    public function __construct(private IdTokenVerifier $tokenVerifier)
+    {
+    }
+
+    public function start(string $intent, ?int $uid = null)
+    {
+        $this->assertConfigured();
+
+        $state = $this->randomUrlSafe(32);
+        $nonce = $this->randomUrlSafe(32);
+        $verifier = $this->randomUrlSafe(64);
+        session()->put('taixue_oidc_flow', [
+            'state' => $state,
+            'nonce' => $nonce,
+            'verifier' => $verifier,
+            'intent' => $intent,
+            'uid' => $uid,
+            'created_at' => time(),
+        ]);
+
+        $query = http_build_query([
+            'client_id' => $this->clientId(),
+            'redirect_uri' => route('taixue-oidc.callback'),
+            'response_type' => 'code',
+            'scope' => 'openid profile email',
+            'state' => $state,
+            'nonce' => $nonce,
+            'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '='),
+            'code_challenge_method' => 'S256',
+        ], '', '&', PHP_QUERY_RFC3986);
+
+        return redirect($this->issuer().'/oauth2/auth?'.$query);
+    }
+
+    public function complete(): array
+    {
+        $flow = session()->pull('taixue_oidc_flow');
+        if (!is_array($flow) || time() - ($flow['created_at'] ?? 0) > self::FLOW_TTL_SECONDS) {
+            throw new RuntimeException('登录请求已失效，请重新开始。');
+        }
+        if (!hash_equals((string) $flow['state'], (string) request('state'))) {
+            throw new RuntimeException('登录状态校验失败，请重新开始。');
+        }
+        if (request()->filled('error')) {
+            throw new RuntimeException('太学账号未授权登录：'.request('error'));
+        }
+        $code = request('code');
+        if (!is_string($code) || $code === '') {
+            throw new RuntimeException('太学账号没有返回授权码。');
+        }
+
+        $response = Http::asForm()
+            ->withBasicAuth($this->clientId(), $this->clientSecret())
+            ->timeout(10)
+            ->post($this->issuer().'/oauth2/token', [
+                'grant_type' => 'authorization_code',
+                'code' => $code,
+                'redirect_uri' => route('taixue-oidc.callback'),
+                'code_verifier' => $flow['verifier'],
+            ]);
+        if (!$response->successful()) {
+            throw new RuntimeException('太学账号令牌交换失败，请稍后重试。');
+        }
+
+        $idToken = $response->json('id_token');
+        if (!is_string($idToken) || $idToken === '') {
+            throw new RuntimeException('太学账号没有返回身份令牌。');
+        }
+        $claims = $this->verifyIdToken($idToken, (string) $flow['nonce']);
+
+        return ['flow' => $flow, 'claims' => $claims];
+    }
+
+    private function verifyIdToken(string $token, string $nonce): array
+    {
+        $jwks = Cache::remember('taixue_oidc_jwks', 300, function () {
+            $response = Http::timeout(10)->get($this->issuer().'/.well-known/jwks.json');
+            if (!$response->successful() || !is_array($response->json('keys'))) {
+                throw new RuntimeException('无法读取太学账号签名密钥。');
+            }
+
+            return $response->json();
+        });
+
+        try {
+            return $this->tokenVerifier->verify(
+                $token,
+                $jwks,
+                $this->issuer(),
+                $this->clientId(),
+                $nonce
+            );
+        } catch (\Throwable $e) {
+            Cache::forget('taixue_oidc_jwks');
+            throw $e;
+        }
+    }
+
+    private function assertConfigured(): void
+    {
+        if ($this->clientId() === '' || $this->clientSecret() === '') {
+            throw new RuntimeException('太学账号登录尚未完成配置。');
+        }
+    }
+
+    private function issuer(): string
+    {
+        return rtrim((string) env('TAIXUE_OIDC_ISSUER', 'https://auth.taixue.cc'), '/');
+    }
+
+    private function clientId(): string
+    {
+        return (string) env('TAIXUE_OIDC_CLIENT_ID', '');
+    }
+
+    private function clientSecret(): string
+    {
+        return (string) env('TAIXUE_OIDC_CLIENT_SECRET', '');
+    }
+
+    private function randomUrlSafe(int $bytes): string
+    {
+        return rtrim(strtr(base64_encode(random_bytes($bytes)), '+/', '-_'), '=');
+    }
+}

@@ -1,0 +1,8 @@
+{% extends 'auth.base' %}
+
+{% block title %}太学账号登录失败{% endblock %}
+
+{% block content %}
+  <div class="alert alert-danger">{{ message }}</div>
+  <a class="btn btn-outline-primary btn-block" href="{{ url('/auth/login') }}">重新登录</a>
+{% endblock %}

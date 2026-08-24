@@ -1,0 +1,28 @@
+{% extends 'user.base' %}
+
+{% block title %}太学账号{% endblock %}
+
+{% block content %}
+  <div class="card">
+    <div class="card-header"><h3 class="card-title">太学账号</h3></div>
+    <div class="card-body">
+      {% if success %}<div class="alert alert-success">{{ success }}</div>{% endif %}
+      {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+      {% if link %}
+        <p>已安全绑定太学统一账号。登录时只使用稳定账号标识，不会按邮箱或昵称合并账号。</p>
+        {% if link.provisioned %}
+          <div class="alert alert-warning">此账号由统一登录创建。设置可用的本地密码前不能解除绑定，以免账号被锁住。</div>
+        {% else %}
+          <form method="post" action="{{ url('/user/taixue-account/link') }}">
+            {{ csrf_field() }}
+            <input type="hidden" name="_method" value="DELETE">
+            <button class="btn btn-outline-danger" type="submit">解除绑定</button>
+          </form>
+        {% endif %}
+      {% else %}
+        <p>绑定后可以使用太学账号登录皮肤站。绑定过程要求同时登录当前皮肤站账号和太学账号。</p>
+        <a class="btn btn-primary" href="{{ url('/user/taixue-account/link') }}">绑定太学账号</a>
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}

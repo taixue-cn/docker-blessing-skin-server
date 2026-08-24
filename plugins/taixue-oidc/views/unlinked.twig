@@ -1,0 +1,10 @@
+{% extends 'auth.base' %}
+
+{% block title %}需要绑定账号{% endblock %}
+
+{% block content %}
+  <div class="alert alert-info">
+    这个太学账号尚未绑定皮肤站账号。请先使用原来的皮肤站账号登录，再到“太学账号”页面完成绑定。
+  </div>
+  <a class="btn btn-primary btn-block" href="{{ url('/auth/login') }}">返回皮肤站登录</a>
+{% endblock %}
