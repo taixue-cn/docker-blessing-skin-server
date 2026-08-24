@@ -19,3 +19,16 @@ Register the exact callback URL `https://skin.taixue.cc/auth/taixue/callback`. D
 For the first gray release, enable the plugin while keeping both UI switches off and add only test identities to `TAIXUE_OIDC_ALLOWED_SUBJECTS`. An empty allowlist or an unknown rollout mode fails closed. Switch the mode to `all` only after the gray acceptance gates pass.
 
 For a zero-click migration, the dedicated Taixue `blessing_skin` scope should emit an integer `bs_uid` claim from the accepted `BS` identity binding. The internal UID is deliberately excluded from the general `profile` scope. Because the claim is inside the signed ID Token, the plugin may use it to create the local `sub` mapping. A conflicting `bs_uid`, local UID, or `sub` is rejected; email and nickname remain display-only attributes.
+
+## Migration acceptance gates
+
+Keep local password login and recovery available throughout the migration. Do not switch `TAIXUE_OIDC_ROLLOUT_MODE` to `all` until all of these gates have passed for the allowlist:
+
+- Every successful login preserves the same Blessing Skin `uid`; no account is matched by email or nickname.
+- A signed `bs_uid` that disagrees with the stored `sub` mapping is rejected and investigated instead of silently choosing either account.
+- Existing local passwords still work, Taixue password recovery can issue a fresh code after an older code expires, and resetting a Taixue password revokes remembered and OAuth sessions.
+- Provisioned accounts cannot unlink OAuth until a usable local password has been established. A password update marks the account safe to unlink.
+- Failed, cancelled, expired, replayed, wrong-audience, and wrong-`azp` authorization responses leave the local account and link table unchanged.
+- Operators can correlate callback failures without logging authorization codes, tokens, client secrets, passwords, or recovery codes.
+
+Rollback is intentionally data-preserving: hide the login and account-menu entries, set the rollout mode back to an allowlist (or disable the plugin), and keep `taixue_oidc_links` intact. Users then continue with their existing local login while operators investigate. Do not delete link rows as part of an operational rollback.
