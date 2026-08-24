@@ -5,8 +5,6 @@ LABEL Description="Lightweight container with Nginx 1.22 & PHP 8.1 based on Alpi
 # Setup document root
 WORKDIR /var/www/html
 
-ARG COMPOSER_SETUP_SHA384="e21205b207c3ff031906575712edab6f13eb0b361f2085f1f1237b7126d785e826a450292b6cfd1d64d92e6563bbde02"
-
 # Install packages and remove default server definition
 RUN apk add --no-cache \
   curl \
@@ -41,11 +39,7 @@ RUN apk add --no-cache \
 # Create symlink so programs depending on `php` still function
 RUN ln -s /usr/bin/php81 /usr/bin/php
 
-RUN php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');" && \
-  php -r "if (hash_file('sha384', 'composer-setup.php') === '${COMPOSER_SETUP_SHA384}') { echo 'Installer verified'; } else { echo 'Installer corrupt'; unlink('composer-setup.php'); } echo PHP_EOL;"  && \
-    php composer-setup.php && \
-    php -r "unlink('composer-setup.php');" && \
-    mv composer.phar /usr/local/bin/composer
+COPY --from=composer:2.8 /usr/bin/composer /usr/local/bin/composer
 
 # Configure nginx
 COPY config/nginx.conf /etc/nginx/nginx.conf
