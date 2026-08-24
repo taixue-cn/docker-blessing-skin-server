@@ -33,7 +33,10 @@ jobs:
       - name: Smoke test image
         run: |-
           docker compose -f docker-compose.test.yml up -d app
-          docker compose -f docker-compose.test.yml run --rm sut
+          docker compose -f docker-compose.test.yml exec -T app \
+            curl --silent --show-error --fail \
+              --retry 15 --retry-connrefused --retry-delay 1 \
+              http://127.0.0.1:8080/fpm-ping | grep '^pong$'
 
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
