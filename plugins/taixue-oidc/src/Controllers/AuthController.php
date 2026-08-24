@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Taixue\Oidc\OidcClient;
+use Taixue\Oidc\RolloutPolicy;
 use Vectorface\Whip\Whip;
 
 class AuthController
@@ -19,12 +20,15 @@ class AuthController
         return $client->start('login');
     }
 
-    public function callback(OidcClient $client, Dispatcher $events)
+    public function callback(OidcClient $client, Dispatcher $events, RolloutPolicy $rollout)
     {
         try {
             $result = $client->complete();
             $flow = $result['flow'];
             $claims = $result['claims'];
+            if (!$rollout->allows($claims['sub'])) {
+                return $this->error('太学账号登录正在小范围灰度，此账号暂未开放。原皮肤站登录仍可正常使用。');
+            }
 
             if (($flow['intent'] ?? null) === 'link') {
                 return $this->completeLink($flow, $claims);

@@ -5,9 +5,24 @@ require __DIR__.'/../vendor/autoload.php';
 use Firebase\JWT\JWT;
 use Taixue\Oidc\IdTokenVerifier;
 use Taixue\Oidc\OidcClient;
+use Taixue\Oidc\RolloutPolicy;
 
 if (OidcClient::SCOPES !== 'openid profile email blessing_skin') {
     throw new RuntimeException('OIDC client must request the dedicated blessing_skin scope');
+}
+
+$allowlist = new RolloutPolicy('allowlist', '1001, 1002');
+if (!$allowlist->allows('1001') || $allowlist->allows('1003')) {
+    throw new RuntimeException('OIDC allowlist rollout policy failed');
+}
+if ((new RolloutPolicy('allowlist', ''))->allows('1001')) {
+    throw new RuntimeException('Empty OIDC allowlist must fail closed');
+}
+if (!(new RolloutPolicy('all', ''))->allows('1001')) {
+    throw new RuntimeException('OIDC all rollout mode failed');
+}
+if ((new RolloutPolicy('invalid', '1001'))->allows('1001')) {
+    throw new RuntimeException('Invalid OIDC rollout mode must fail closed');
 }
 
 $privateKey = openssl_pkey_new([
