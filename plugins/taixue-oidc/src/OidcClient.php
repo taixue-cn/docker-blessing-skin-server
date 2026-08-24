@@ -8,6 +8,8 @@ use RuntimeException;
 
 class OidcClient
 {
+    public const SCOPES = 'openid profile email blessing_skin';
+
     private const FLOW_TTL_SECONDS = 600;
 
     public function __construct(private IdTokenVerifier $tokenVerifier)
@@ -34,7 +36,7 @@ class OidcClient
             'client_id' => $this->clientId(),
             'redirect_uri' => route('taixue-oidc.callback'),
             'response_type' => 'code',
-            'scope' => 'openid profile email',
+            'scope' => self::SCOPES,
             'state' => $state,
             'nonce' => $nonce,
             'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '='),

@@ -4,6 +4,11 @@ require __DIR__.'/../vendor/autoload.php';
 
 use Firebase\JWT\JWT;
 use Taixue\Oidc\IdTokenVerifier;
+use Taixue\Oidc\OidcClient;
+
+if (OidcClient::SCOPES !== 'openid profile email blessing_skin') {
+    throw new RuntimeException('OIDC client must request the dedicated blessing_skin scope');
+}
 
 $privateKey = openssl_pkey_new([
     'digest_alg' => 'sha256',
