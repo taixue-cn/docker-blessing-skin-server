@@ -38,7 +38,8 @@ class AuthController
             $flow = $result['flow'];
             $claims = $result['claims'];
             $subject = $claims['sub'];
-            if (!$rollout->allows($claims['sub'])) {
+            $intent = (string) ($flow['intent'] ?? 'login');
+            if (!$rollout->allowsIntent($claims['sub'], $intent)) {
                 $audit->record('LOGIN', 'REJECTED', null, $subject, ['reason' => 'rollout_denied']);
                 return $this->error(
                     '太学账号登录正在小范围灰度，此账号暂未开放。原皮肤站登录仍可正常使用。',
@@ -46,13 +47,13 @@ class AuthController
                 );
             }
 
-            if (($flow['intent'] ?? null) === 'link') {
+            if ($intent === 'link') {
                 return $this->completeLink($flow, $claims, $audit);
             }
-            if (($flow['intent'] ?? null) === 'unlink') {
+            if ($intent === 'unlink') {
                 return $this->completeUnlink($flow, $claims, $audit);
             }
-            if (($flow['intent'] ?? null) === 'local_password') {
+            if ($intent === 'local_password') {
                 return $this->completeLocalPasswordAuthorization($flow, $claims, $audit);
             }
 

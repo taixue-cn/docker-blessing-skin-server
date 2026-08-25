@@ -98,6 +98,12 @@ $allowlist = new RolloutPolicy('allowlist', '1001, 1002');
 if (!$allowlist->allows('1001') || $allowlist->allows('1003')) {
     throw new RuntimeException('OIDC allowlist rollout policy failed');
 }
+if (!$allowlist->allowsIntent('1003', 'unlink') ||
+    !$allowlist->allowsIntent('1003', 'local_password') ||
+    $allowlist->allowsIntent('1003', 'login') ||
+    $allowlist->allowsIntent('1003', 'link')) {
+    throw new RuntimeException('OIDC rollout must preserve recovery without widening login or linking');
+}
 if ((new RolloutPolicy('allowlist', ''))->allows('1001')) {
     throw new RuntimeException('Empty OIDC allowlist must fail closed');
 }
