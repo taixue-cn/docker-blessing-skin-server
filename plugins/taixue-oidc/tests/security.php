@@ -8,6 +8,17 @@ use Taixue\Oidc\LinkConsistency;
 use Taixue\Oidc\OidcClient;
 use Taixue\Oidc\RolloutPolicy;
 
+$oidcClientSource = file_get_contents(__DIR__.'/../src/OidcClient.php');
+if (!str_contains($oidcClientSource, "\$parameters['prompt'] = 'login'") ||
+    !str_contains($oidcClientSource, "\$parameters['max_age'] = 0")) {
+    throw new RuntimeException('OIDC unlink must require fresh Taixue authentication');
+}
+$callbacksSource = file_get_contents(__DIR__.'/../callbacks.php');
+if (str_contains($callbacksSource, "dropIfExists('taixue_oidc_links')") ||
+    str_contains($callbacksSource, "dropIfExists('taixue_oidc_audit_events')")) {
+    throw new RuntimeException('Plugin rollback must preserve OIDC migration data');
+}
+
 if (OidcClient::SCOPES !== 'openid profile email blessing_skin') {
     throw new RuntimeException('OIDC client must request the dedicated blessing_skin scope');
 }

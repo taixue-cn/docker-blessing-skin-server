@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Taixue\Oidc\LinkConsistency;
 use Taixue\Oidc\OidcClient;
+use Taixue\Oidc\OidcAudit;
 use Taixue\Oidc\RolloutPolicy;
 use Vectorface\Whip\Whip;
 
@@ -21,18 +22,33 @@ class AuthController
         return $client->start('login');
     }
 
-    public function callback(OidcClient $client, Dispatcher $events, RolloutPolicy $rollout)
+    public function callback(
+        OidcClient $client,
+        Dispatcher $events,
+        RolloutPolicy $rollout,
+        OidcAudit $audit
+    )
     {
+        $subject = null;
+        $uid = null;
         try {
             $result = $client->complete();
             $flow = $result['flow'];
             $claims = $result['claims'];
+            $subject = $claims['sub'];
             if (!$rollout->allows($claims['sub'])) {
-                return $this->error('太学账号登录正在小范围灰度，此账号暂未开放。原皮肤站登录仍可正常使用。');
+                $audit->record('LOGIN', 'REJECTED', null, $subject, ['reason' => 'rollout_denied']);
+                return $this->error(
+                    '太学账号登录正在小范围灰度，此账号暂未开放。原皮肤站登录仍可正常使用。',
+                    $audit->requestId()
+                );
             }
 
             if (($flow['intent'] ?? null) === 'link') {
-                return $this->completeLink($flow, $claims);
+                return $this->completeLink($flow, $claims, $audit);
+            }
+            if (($flow['intent'] ?? null) === 'unlink') {
+                return $this->completeUnlink($flow, $claims, $audit);
             }
 
             $claimedUid = $this->claimedBsUid($claims);
@@ -41,24 +57,38 @@ class AuthController
                 LinkConsistency::assertSubjectOwner($link, $claimedUid);
             }
             if (!$link && $claimedUid) {
-                $link = $this->linkTrustedBsUid($claimedUid, $claims['sub']);
+                $link = $this->linkTrustedBsUid($claimedUid, $claims['sub'], $audit);
             }
             if (!$link && filter_var(env('TAIXUE_OIDC_AUTO_REGISTER', false), FILTER_VALIDATE_BOOL)) {
-                $link = $this->register($claims, $events);
+                $link = $this->register($claims, $events, $audit);
             }
             if (!$link) {
-                return response()->view('Taixue\Oidc::unlinked', ['claims' => $claims], 403);
+                $audit->record('LOGIN', 'REJECTED', null, $subject, ['reason' => 'account_unlinked']);
+                return response()->view('Taixue\Oidc::unlinked', [
+                    'request_id' => $audit->requestId(),
+                ], 403)->header('X-Request-ID', $audit->requestId());
             }
 
+            $uid = (int) $link->uid;
             $user = User::find($link->uid);
             if (!$user) {
-                return $this->error('绑定的皮肤站账号不存在，请联系管理员修复。');
+                throw new \RuntimeException('绑定的皮肤站账号不存在，请联系管理员修复。');
             }
 
             $events->dispatch('auth.login.ready', [$user]);
             Auth::login($user, true);
-            $events->dispatch('auth.login.succeeded', [$user]);
-            event(new Events\UserLoggedIn($user));
+            try {
+                $events->dispatch('auth.login.succeeded', [$user]);
+                event(new Events\UserLoggedIn($user));
+                $audit->record('LOGIN', 'SUCCEEDED', $uid, $subject, ['source' => 'taixue_oidc']);
+            } catch (\Throwable $loginError) {
+                // Do not leave a browser authenticated when the success event
+                // or its mandatory audit record could not be completed.
+                Auth::logout();
+                request()->session()->invalidate();
+                request()->session()->regenerateToken();
+                throw $loginError;
+            }
 
             return redirect(session()->pull('last_requested_path', url('/user')));
         } catch (\Throwable $e) {
@@ -66,26 +96,34 @@ class AuthController
                 report($e);
             }
 
+            $reason = $e instanceof \RuntimeException ? 'flow_rejected' : 'internal_error';
+            try {
+                $audit->record('CALLBACK', 'FAILED', $uid, $subject, ['reason' => $reason]);
+            } catch (\Throwable $auditError) {
+                report($auditError);
+            }
+            $audit->warn('CALLBACK', $reason);
+
             $message = $e instanceof \RuntimeException
                 ? $e->getMessage()
                 : '太学账号登录暂时不可用，请稍后重试。';
 
-            return $this->error($message);
+            return $this->error($message, $audit->requestId());
         }
     }
 
-    private function completeLink(array $flow, array $claims)
+    private function completeLink(array $flow, array $claims, OidcAudit $audit)
     {
         $user = Auth::user();
         if (!$user || (int) ($flow['uid'] ?? 0) !== (int) $user->uid) {
-            return $this->error('皮肤站登录状态已变化，请重新发起绑定。');
+            throw new \RuntimeException('皮肤站登录状态已变化，请重新发起绑定。');
         }
         $claimedUid = $this->claimedBsUid($claims);
         if ($claimedUid && $claimedUid !== (int) $user->uid) {
-            return $this->error('太学账号已绑定另一个皮肤站账号，请先在统一账号中心处理冲突。');
+            throw new \RuntimeException('太学账号已绑定另一个皮肤站账号，请先在统一账号中心处理冲突。');
         }
 
-        DB::transaction(function () use ($user, $claims) {
+        DB::transaction(function () use ($user, $claims, $audit) {
             $bySubject = DB::table('taixue_oidc_links')->where('subject', $claims['sub'])->lockForUpdate()->first();
             if ($bySubject && (int) $bySubject->uid !== (int) $user->uid) {
                 throw new \RuntimeException('这个太学账号已经绑定了其他皮肤站账号。');
@@ -103,14 +141,17 @@ class AuthController
                     'updated_at' => now(),
                 ]);
             }
+            $audit->record('LINK', 'SUCCEEDED', (int) $user->uid, $claims['sub'], [
+                'source' => 'authenticated_accounts',
+            ]);
         });
 
         return redirect('/user/taixue-account')->with('success', '太学账号绑定成功。');
     }
 
-    private function linkTrustedBsUid(int $uid, string $subject)
+    private function linkTrustedBsUid(int $uid, string $subject, OidcAudit $audit)
     {
-        return DB::transaction(function () use ($uid, $subject) {
+        return DB::transaction(function () use ($uid, $subject, $audit) {
             $user = User::find($uid);
             if (!$user) {
                 throw new \RuntimeException('太学账号绑定的皮肤站账号不存在，请联系管理员修复。');
@@ -132,6 +173,9 @@ class AuthController
                     'provisioned' => false,
                     'created_at' => now(),
                     'updated_at' => now(),
+                ]);
+                $audit->record('LINK', 'SUCCEEDED', $uid, $subject, [
+                    'source' => 'signed_bs_uid',
                 ]);
             }
 
@@ -155,9 +199,9 @@ class AuthController
         return $value;
     }
 
-    private function register(array $claims, Dispatcher $events)
+    private function register(array $claims, Dispatcher $events, OidcAudit $audit)
     {
-        return DB::transaction(function () use ($claims, $events) {
+        return DB::transaction(function () use ($claims, $events, $audit) {
             $existing = DB::table('taixue_oidc_links')->where('subject', $claims['sub'])->lockForUpdate()->first();
             if ($existing) {
                 return $existing;
@@ -194,13 +238,51 @@ class AuthController
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+            $audit->record('REGISTER', 'SUCCEEDED', (int) $user->uid, $claims['sub'], [
+                'source' => 'taixue_oidc',
+            ]);
 
             return (object) ['uid' => $user->uid, 'subject' => $claims['sub']];
         });
     }
 
-    private function error(string $message)
+    private function completeUnlink(array $flow, array $claims, OidcAudit $audit)
     {
-        return response()->view('Taixue\Oidc::error', ['message' => $message], 400);
+        $user = Auth::user();
+        if (!$user || (int) ($flow['uid'] ?? 0) !== (int) $user->uid) {
+            throw new \RuntimeException('皮肤站登录状态已变化，请重新发起解绑。');
+        }
+        $claimedUid = $this->claimedBsUid($claims);
+        if ($claimedUid && $claimedUid !== (int) $user->uid) {
+            throw new \RuntimeException('当前太学账号与待解绑的皮肤站账号不一致。');
+        }
+
+        DB::transaction(function () use ($user, $claims, $audit) {
+            $link = DB::table('taixue_oidc_links')
+                ->where('uid', $user->uid)
+                ->lockForUpdate()
+                ->first();
+            if (!$link || $link->subject !== $claims['sub']) {
+                throw new \RuntimeException('账号绑定已经变化，请刷新后重试。');
+            }
+            if ($link->provisioned) {
+                throw new \RuntimeException('此账号尚未设置可用的本地密码，暂时不能解除绑定。');
+            }
+
+            DB::table('taixue_oidc_links')->where('uid', $user->uid)->delete();
+            $audit->record('UNLINK', 'SUCCEEDED', (int) $user->uid, $claims['sub'], [
+                'source' => 'fresh_taixue_authentication',
+            ]);
+        });
+
+        return redirect('/user/taixue-account')->with('success', '已解除太学账号绑定。');
+    }
+
+    private function error(string $message, string $requestId)
+    {
+        return response()->view('Taixue\Oidc::error', [
+            'message' => $message,
+            'request_id' => $requestId,
+        ], 400)->header('X-Request-ID', $requestId);
     }
 }

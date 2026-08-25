@@ -6,5 +6,8 @@
   <div class="alert alert-info">
     这个太学账号尚未绑定皮肤站账号。请先使用原来的皮肤站账号登录，再到“太学账号”页面完成绑定。
   </div>
+  {% if request_id %}
+    <p class="text-muted">请求编号：<code>{{ request_id }}</code></p>
+  {% endif %}
   <a class="btn btn-primary btn-block" href="{{ url('/auth/login') }}">返回皮肤站登录</a>
 {% endblock %}

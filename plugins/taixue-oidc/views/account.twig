@@ -16,7 +16,7 @@
           <form method="post" action="{{ url('/user/taixue-account/link') }}">
             {{ csrf_field() }}
             <input type="hidden" name="_method" value="DELETE">
-            <button class="btn btn-outline-danger" type="submit">解除绑定</button>
+            <button class="btn btn-outline-danger" type="submit">验证太学账号并解除绑定</button>
           </form>
         {% endif %}
       {% else %}

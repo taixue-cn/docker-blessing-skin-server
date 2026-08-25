@@ -32,7 +32,7 @@ class OidcClient
             'created_at' => time(),
         ]);
 
-        $query = http_build_query([
+        $parameters = [
             'client_id' => $this->clientId(),
             'redirect_uri' => route('taixue-oidc.callback'),
             'response_type' => 'code',
@@ -41,7 +41,14 @@ class OidcClient
             'nonce' => $nonce,
             'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '='),
             'code_challenge_method' => 'S256',
-        ], '', '&', PHP_QUERY_RFC3986);
+        ];
+        if ($intent === 'unlink') {
+            // Unlinking changes the account recovery boundary. A remembered
+            // SSO session is insufficient; require fresh Taixue authentication.
+            $parameters['prompt'] = 'login';
+            $parameters['max_age'] = 0;
+        }
+        $query = http_build_query($parameters, '', '&', PHP_QUERY_RFC3986);
 
         return redirect($this->issuer().'/oauth2/auth?'.$query);
     }

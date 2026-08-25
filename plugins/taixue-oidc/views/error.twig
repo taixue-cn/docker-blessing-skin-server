@@ -4,5 +4,8 @@
 
 {% block content %}
   <div class="alert alert-danger">{{ message }}</div>
+  {% if request_id %}
+    <p class="text-muted">请求编号：<code>{{ request_id }}</code></p>
+  {% endif %}
   <a class="btn btn-outline-primary btn-block" href="{{ url('/auth/login') }}">重新登录</a>
 {% endblock %}

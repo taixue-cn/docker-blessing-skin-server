@@ -30,5 +30,9 @@ Keep local password login and recovery available throughout the migration. Do no
 - Provisioned accounts cannot unlink OAuth until a usable local password has been established. A password update marks the account safe to unlink.
 - Failed, cancelled, expired, replayed, wrong-audience, and wrong-`azp` authorization responses leave the local account and link table unchanged.
 - Operators can correlate callback failures without logging authorization codes, tokens, client secrets, passwords, or recovery codes.
+- Link, login, registration, rejection, and unlink events are written to `taixue_oidc_audit_events` with a request ID, actor UID when known, stable subject when verified, IP, user agent, and bounded non-secret metadata. Error pages expose the same request ID.
+- Unlinking requires a fresh Taixue login (`prompt=login`, `max_age=0`); a remembered SSO session alone is not accepted.
 
 Rollback is intentionally data-preserving: hide the login and account-menu entries, set the rollout mode back to an allowlist (or disable the plugin), and keep `taixue_oidc_links` intact. Users then continue with their existing local login while operators investigate. Do not delete link rows as part of an operational rollback.
+
+Uninstalling the plugin also preserves `taixue_oidc_links` and `taixue_oidc_audit_events`. Purging migration identity or audit data is a separate, deliberate database operation and is never part of routine rollback or reinstall.
