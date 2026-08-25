@@ -47,12 +47,21 @@ return function (Filter $filter, Dispatcher $events) {
             ->group(__DIR__.'/routes.php');
     });
 
-    $events->listen('user.profile.updated', function ($user, $action) {
+    $markLocalPasswordAvailable = static function ($user): void {
+        DB::table('taixue_oidc_links')
+            ->where('uid', $user->uid)
+            ->update(['provisioned' => false, 'updated_at' => now()]);
+    };
+
+    $events->listen('user.profile.updated', function ($user, $action) use ($markLocalPasswordAvailable) {
         if ($action === 'password') {
-            DB::table('taixue_oidc_links')->where('uid', $user->uid)->update(['provisioned' => false]);
+            $markLocalPasswordAvailable($user);
         }
     });
-    $events->listen('user.password.updated', function ($user) {
-        DB::table('taixue_oidc_links')->where('uid', $user->uid)->update(['provisioned' => false]);
-    });
+    $events->listen('user.password.updated', $markLocalPasswordAvailable);
+    // Blessing Skin's built-in forgot-password flow does not dispatch either
+    // user password event above. It dispatches auth.reset.after only after the
+    // new local password has been persisted. Accept only the user argument so
+    // the plaintext password carried as the second event argument is ignored.
+    $events->listen('auth.reset.after', $markLocalPasswordAvailable);
 };

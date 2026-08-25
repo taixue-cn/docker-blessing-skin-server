@@ -70,6 +70,17 @@ if (str_contains($callbacksSource, "dropIfExists('taixue_oidc_links')") ||
     throw new RuntimeException('Plugin rollback must preserve OIDC migration data');
 }
 
+$bootstrapSource = file_get_contents(__DIR__.'/../bootstrap.php');
+if (!str_contains($bootstrapSource, "listen('auth.reset.after'") ||
+    !str_contains($bootstrapSource, "'provisioned' => false")) {
+    throw new RuntimeException(
+        'Blessing Skin password recovery must establish the local fallback credential'
+    );
+}
+if (str_contains($bootstrapSource, "function (\$user, \$password)")) {
+    throw new RuntimeException('Password recovery listener must not bind the plaintext password');
+}
+
 if (OidcClient::SCOPES !== 'openid profile email blessing_skin') {
     throw new RuntimeException('OIDC client must request the dedicated blessing_skin scope');
 }
