@@ -8,6 +8,7 @@ use Taixue\Oidc\LinkConsistency;
 use Taixue\Oidc\FreshAuthGrant;
 use Taixue\Oidc\FreshAuthentication;
 use Taixue\Oidc\OidcClient;
+use Taixue\Oidc\OidcFlowException;
 use Taixue\Oidc\RolloutPolicy;
 
 $oidcClientSource = file_get_contents(__DIR__.'/../src/OidcClient.php');
@@ -15,6 +16,18 @@ if (!str_contains($oidcClientSource, "\$parameters['prompt'] = 'login'") ||
     !str_contains($oidcClientSource, "\$parameters['max_age'] = 0") ||
     !str_contains($oidcClientSource, "['unlink', 'local_password']")) {
     throw new RuntimeException('Recovery-boundary changes must require fresh Taixue authentication');
+}
+if (str_contains($oidcClientSource, "request('error')")) {
+    throw new RuntimeException('OAuth provider error input must not be reflected to users');
+}
+$typedFailure = new OidcFlowException('nonce_mismatch', 'safe message');
+if ($typedFailure->reason() !== 'nonce_mismatch' ||
+    (new OidcFlowException('../unsafe', 'safe message'))->reason() !== 'invalid_failure_reason') {
+    throw new RuntimeException('OIDC failure reason normalization failed');
+}
+$authControllerSource = file_get_contents(__DIR__.'/../src/Controllers/AuthController.php');
+if (!str_contains($authControllerSource, '$e->reason()')) {
+    throw new RuntimeException('OIDC callback audit must persist typed failure reasons');
 }
 $callbacksSource = file_get_contents(__DIR__.'/../callbacks.php');
 if (str_contains($callbacksSource, "dropIfExists('taixue_oidc_links')") ||

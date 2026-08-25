@@ -4,7 +4,6 @@ namespace Taixue\Oidc;
 
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
-use RuntimeException;
 
 class OidcClient
 {
@@ -59,17 +58,17 @@ class OidcClient
     {
         $flow = session()->pull('taixue_oidc_flow');
         if (!is_array($flow) || time() - ($flow['created_at'] ?? 0) > self::FLOW_TTL_SECONDS) {
-            throw new RuntimeException('登录请求已失效，请重新开始。');
+            throw new OidcFlowException('flow_expired', '登录请求已失效，请重新开始。');
         }
         if (!hash_equals((string) $flow['state'], (string) request('state'))) {
-            throw new RuntimeException('登录状态校验失败，请重新开始。');
+            throw new OidcFlowException('state_mismatch', '登录状态校验失败，请重新开始。');
         }
         if (request()->filled('error')) {
-            throw new RuntimeException('太学账号未授权登录：'.request('error'));
+            throw new OidcFlowException('authorization_rejected', '太学账号未完成授权，请重新开始。');
         }
         $code = request('code');
         if (!is_string($code) || $code === '') {
-            throw new RuntimeException('太学账号没有返回授权码。');
+            throw new OidcFlowException('authorization_code_missing', '太学账号没有返回授权码。');
         }
 
         $response = Http::asForm()
@@ -82,12 +81,12 @@ class OidcClient
                 'code_verifier' => $flow['verifier'],
             ]);
         if (!$response->successful()) {
-            throw new RuntimeException('太学账号令牌交换失败，请稍后重试。');
+            throw new OidcFlowException('token_exchange_failed', '太学账号令牌交换失败，请稍后重试。');
         }
 
         $idToken = $response->json('id_token');
         if (!is_string($idToken) || $idToken === '') {
-            throw new RuntimeException('太学账号没有返回身份令牌。');
+            throw new OidcFlowException('id_token_missing', '太学账号没有返回身份令牌。');
         }
         $claims = $this->verifyIdToken($idToken, (string) $flow['nonce']);
         if (in_array($flow['intent'] ?? '', self::SENSITIVE_INTENTS, true)) {
@@ -116,7 +115,7 @@ class OidcClient
         $jwks = Cache::remember('taixue_oidc_jwks', 300, function () {
             $response = Http::timeout(10)->get($this->issuer().'/.well-known/jwks.json');
             if (!$response->successful() || !is_array($response->json('keys'))) {
-                throw new RuntimeException('无法读取太学账号签名密钥。');
+                throw new OidcFlowException('jwks_unavailable', '无法读取太学账号签名密钥。');
             }
 
             return $response->json();
@@ -132,14 +131,21 @@ class OidcClient
             );
         } catch (\Throwable $e) {
             Cache::forget('taixue_oidc_jwks');
-            throw $e;
+            if ($e instanceof OidcFlowException) {
+                throw $e;
+            }
+            throw new OidcFlowException(
+                'id_token_invalid',
+                '太学账号身份令牌校验失败。',
+                $e
+            );
         }
     }
 
     private function assertConfigured(): void
     {
         if ($this->clientId() === '' || $this->clientSecret() === '') {
-            throw new RuntimeException('太学账号登录尚未完成配置。');
+            throw new OidcFlowException('client_not_configured', '太学账号登录尚未完成配置。');
         }
     }
 
@@ -157,7 +163,7 @@ class OidcClient
             ($parts['host'] ?? '') === '' ||
             isset($parts['user']) || isset($parts['pass']) ||
             isset($parts['query']) || isset($parts['fragment'])) {
-            throw new RuntimeException('太学账号服务地址配置无效。');
+            throw new OidcFlowException('issuer_invalid', '太学账号服务地址配置无效。');
         }
 
         return $issuer;

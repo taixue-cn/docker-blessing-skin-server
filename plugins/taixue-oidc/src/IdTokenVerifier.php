@@ -4,8 +4,6 @@ namespace Taixue\Oidc;
 
 use Firebase\JWT\JWK;
 use Firebase\JWT\JWT;
-use RuntimeException;
-
 class IdTokenVerifier
 {
     public function verify(
@@ -19,23 +17,29 @@ class IdTokenVerifier
         try {
             $claims = (array) JWT::decode($token, JWK::parseKeySet($jwks, 'RS256'));
         } catch (\Throwable $e) {
-            throw new RuntimeException('太学账号身份令牌校验失败。', 0, $e);
+            throw new OidcFlowException('jwt_decode_failed', '太学账号身份令牌校验失败。', $e);
         }
 
         $audience = (array) ($claims['aud'] ?? []);
         if (($claims['iss'] ?? null) !== $issuer || !in_array($clientId, $audience, true)) {
-            throw new RuntimeException('太学账号身份令牌的签发方或接收方不正确。');
+            throw new OidcFlowException(
+                'issuer_audience_mismatch',
+                '太学账号身份令牌的签发方或接收方不正确。'
+            );
         }
         $authorizedParty = $claims['azp'] ?? null;
         if ((count($audience) > 1 && !is_string($authorizedParty)) ||
             ($authorizedParty !== null && $authorizedParty !== $clientId)) {
-            throw new RuntimeException('太学账号身份令牌的授权客户端不正确。');
+            throw new OidcFlowException(
+                'authorized_party_mismatch',
+                '太学账号身份令牌的授权客户端不正确。'
+            );
         }
         if (!isset($claims['sub']) || !is_string($claims['sub']) || $claims['sub'] === '') {
-            throw new RuntimeException('太学账号身份令牌缺少用户标识。');
+            throw new OidcFlowException('subject_missing', '太学账号身份令牌缺少用户标识。');
         }
         if (!isset($claims['nonce']) || !hash_equals($nonce, (string) $claims['nonce'])) {
-            throw new RuntimeException('太学账号身份令牌 nonce 校验失败。');
+            throw new OidcFlowException('nonce_mismatch', '太学账号身份令牌 nonce 校验失败。');
         }
 
         return $claims;

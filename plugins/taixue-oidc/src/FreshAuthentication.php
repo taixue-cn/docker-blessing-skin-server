@@ -2,8 +2,6 @@
 
 namespace Taixue\Oidc;
 
-use RuntimeException;
-
 class FreshAuthentication
 {
     private const CLOCK_SKEW_SECONDS = 60;
@@ -14,7 +12,10 @@ class FreshAuthentication
         if ($flowCreatedAt <= 0 || $authTime === false ||
             $authTime < $flowCreatedAt - self::CLOCK_SKEW_SECONDS ||
             $authTime > $now + self::CLOCK_SKEW_SECONDS) {
-            throw new RuntimeException('太学账号没有提供有效的重新认证证明，请重新输入密码。');
+            throw new OidcFlowException(
+                'fresh_auth_invalid',
+                '太学账号没有提供有效的重新认证证明，请重新输入密码。'
+            );
         }
     }
 }

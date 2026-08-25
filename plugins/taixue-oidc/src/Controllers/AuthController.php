@@ -13,6 +13,7 @@ use Taixue\Oidc\LinkConsistency;
 use Taixue\Oidc\FreshAuthGrant;
 use Taixue\Oidc\OidcClient;
 use Taixue\Oidc\OidcAudit;
+use Taixue\Oidc\OidcFlowException;
 use Taixue\Oidc\RolloutPolicy;
 use Vectorface\Whip\Whip;
 
@@ -100,7 +101,9 @@ class AuthController
                 report($e);
             }
 
-            $reason = $e instanceof \RuntimeException ? 'flow_rejected' : 'internal_error';
+            $reason = $e instanceof OidcFlowException
+                ? $e->reason()
+                : ($e instanceof \RuntimeException ? 'account_state_rejected' : 'internal_error');
             try {
                 $audit->record('CALLBACK', 'FAILED', $uid, $subject, ['reason' => $reason]);
             } catch (\Throwable $auditError) {
