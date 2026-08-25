@@ -4,12 +4,19 @@ on:
   push:
     branches: [master]
     paths:
-      - 'plugins/taixue-oidc/**'
-      - '.github/workflows/taixue-oidc.yaml'
+      - "plugins/taixue-oidc/**"
+      - ".github/workflows/taixue-oidc.yaml"
   pull_request:
     paths:
-      - 'plugins/taixue-oidc/**'
-      - '.github/workflows/taixue-oidc.yaml'
+      - "plugins/taixue-oidc/**"
+      - ".github/workflows/taixue-oidc.yaml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: taixue-oidc-production
+  cancel-in-progress: false
 
 jobs:
   security-test:
@@ -18,7 +25,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.1'
+          php-version: "8.1"
           tools: composer:v2
       - name: Install locked dependencies
         working-directory: plugins/taixue-oidc
@@ -32,3 +39,115 @@ jobs:
       - name: Run OIDC security checks
         working-directory: plugins/taixue-oidc
         run: php tests/security.php
+
+  deploy-production:
+    if: github.event_name == 'push'
+    needs: security-test
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy the tested plugin to the production bind mount
+        uses: appleboy/ssh-action@v1.2.5
+        env:
+          DEPLOY_SHA: ${{ github.sha }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          port: ${{ secrets.SSH_PORT }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: DEPLOY_SHA
+          command_timeout: 10m
+          script: |
+            set -eu
+
+            case "$DEPLOY_SHA" in
+              *[!0-9a-f]*|'') echo 'Invalid deployment SHA' >&2; exit 1 ;;
+            esac
+            [ "${#DEPLOY_SHA}" -eq 40 ] || { echo 'Invalid deployment SHA length' >&2; exit 1; }
+
+            SERVICE_ROOT=/home/taixue/data/services/blessing-skin-server
+            CHECKOUT="$SERVICE_ROOT/build/src"
+            COMPOSE_FILE=/home/taixue/data/services/docker-compose.yml
+            CONTAINER=taixue.blessing-skin-server
+            LIVE=/var/www/html/plugins/taixue-oidc
+            STAGE="/var/www/html/plugins/.taixue-oidc-stage-$DEPLOY_SHA"
+            PREVIOUS="/var/www/html/plugins/.taixue-oidc-previous-$DEPLOY_SHA"
+            BACKUP="$SERVICE_ROOT/backups/taixue-oidc-pre-$DEPLOY_SHA"
+            HOST_STAGE=$(mktemp -d "/tmp/taixue-oidc-$DEPLOY_SHA-XXXXXX")
+            SWAPPED=0
+
+            rollback() {
+              exit_code=$?
+              trap - EXIT INT TERM
+              rm -rf -- "$HOST_STAGE"
+              if [ "$SWAPPED" -eq 1 ]; then
+                echo 'Deployment failed; restoring the previous plugin' >&2
+                docker exec "$CONTAINER" php artisan plugin:disable taixue-oidc >/dev/null 2>&1 || true
+                docker exec -u 0 "$CONTAINER" sh -c \
+                  'rm -rf -- "$1"; if [ -d "$2" ]; then mv -- "$2" "$1"; fi' \
+                  sh "$LIVE" "$PREVIOUS"
+                docker exec "$CONTAINER" php artisan plugin:enable taixue-oidc >/dev/null 2>&1 || true
+                docker compose -f "$COMPOSE_FILE" restart blessing-skin-server >/dev/null 2>&1 || true
+              else
+                docker exec -u 0 "$CONTAINER" rm -rf -- "$STAGE" >/dev/null 2>&1 || true
+              fi
+              exit "$exit_code"
+            }
+            trap rollback EXIT INT TERM
+
+            git -C "$CHECKOUT" fetch --quiet origin master
+            git -C "$CHECKOUT" cat-file -e "$DEPLOY_SHA^{commit}"
+            [ "$(git -C "$CHECKOUT" rev-parse origin/master)" = "$DEPLOY_SHA" ] || {
+              echo 'origin/master does not match the requested deployment SHA' >&2
+              exit 1
+            }
+            mkdir -p "$HOST_STAGE"
+            git -C "$CHECKOUT" archive "$DEPLOY_SHA" plugins/taixue-oidc | tar -x -C "$HOST_STAGE"
+
+            mkdir -p "$SERVICE_ROOT/backups"
+            if [ ! -e "$BACKUP" ]; then
+              docker cp "$CONTAINER:$LIVE" "$BACKUP"
+            fi
+
+            docker exec -u 0 "$CONTAINER" rm -rf -- "$STAGE" "$PREVIOUS"
+            docker exec -u 0 "$CONTAINER" mkdir -p "$STAGE"
+            docker cp "$HOST_STAGE/plugins/taixue-oidc/." "$CONTAINER:$STAGE/"
+            if docker exec "$CONTAINER" test -f "$LIVE/.env"; then
+              docker exec -u 0 "$CONTAINER" cp -p "$LIVE/.env" "$STAGE/.env"
+            fi
+            docker exec -u 0 "$CONTAINER" chown -R nobody:nogroup "$STAGE"
+            docker exec -u nobody -w "$STAGE" "$CONTAINER" \
+              composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
+            docker exec -u nobody -w "$STAGE" "$CONTAINER" php tests/security.php
+
+            docker exec "$CONTAINER" php artisan plugin:disable taixue-oidc
+            docker exec -u 0 "$CONTAINER" sh -c \
+              'mv -- "$1" "$2"; mv -- "$3" "$1"' \
+              sh "$LIVE" "$PREVIOUS" "$STAGE"
+            SWAPPED=1
+            docker exec "$CONTAINER" php artisan plugin:enable taixue-oidc
+            docker compose -f "$COMPOSE_FILE" restart blessing-skin-server
+
+            attempts=0
+            until curl --fail --silent --show-error --output /dev/null \
+              https://skin.taixue.cc/auth/login; do
+              attempts=$((attempts + 1))
+              [ "$attempts" -lt 20 ] || { echo 'Login smoke test timed out' >&2; exit 1; }
+              sleep 2
+            done
+            [ "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              --request POST --data 'logout_token=invalid' \
+              https://skin.taixue.cc/auth/taixue/backchannel-logout)" = 400 ]
+            [ "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              --request POST --header 'Content-Type: application/json' --data '{}' \
+              https://skin.taixue.cc/auth/taixue/coordinated-logout)" = 400 ]
+
+            expected_bootstrap=$(sha256sum "$HOST_STAGE/plugins/taixue-oidc/bootstrap.php" | cut -d ' ' -f 1)
+            deployed_bootstrap=$(docker exec "$CONTAINER" sha256sum "$LIVE/bootstrap.php" | cut -d ' ' -f 1)
+            [ "$expected_bootstrap" = "$deployed_bootstrap" ]
+
+            SWAPPED=0
+            docker exec -u 0 "$CONTAINER" rm -rf -- "$PREVIOUS"
+            rm -rf -- "$HOST_STAGE"
+            trap - EXIT INT TERM
+            echo "Taixue OIDC $DEPLOY_SHA deployed successfully"
