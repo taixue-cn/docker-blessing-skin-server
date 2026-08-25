@@ -92,6 +92,16 @@ class OidcClient
         return ['flow' => $flow, 'claims' => $claims];
     }
 
+    public function passwordChangeUrl(): string
+    {
+        return self::standardPasswordChangeUrl($this->issuer());
+    }
+
+    public static function standardPasswordChangeUrl(string $issuer): string
+    {
+        return self::normalizeIssuer($issuer).'/.well-known/change-password';
+    }
+
     private function verifyIdToken(string $token, string $nonce): array
     {
         $jwks = Cache::remember('taixue_oidc_jwks', 300, function () {
@@ -126,7 +136,22 @@ class OidcClient
 
     private function issuer(): string
     {
-        return rtrim((string) env('TAIXUE_OIDC_ISSUER', 'https://auth.taixue.cc'), '/');
+        return self::normalizeIssuer((string) env('TAIXUE_OIDC_ISSUER', 'https://auth.taixue.cc'));
+    }
+
+    private static function normalizeIssuer(string $issuer): string
+    {
+        $issuer = rtrim(trim($issuer), '/');
+        $parts = parse_url($issuer);
+        if (!is_array($parts) ||
+            strtolower((string) ($parts['scheme'] ?? '')) !== 'https' ||
+            ($parts['host'] ?? '') === '' ||
+            isset($parts['user']) || isset($parts['pass']) ||
+            isset($parts['query']) || isset($parts['fragment'])) {
+            throw new RuntimeException('太学账号服务地址配置无效。');
+        }
+
+        return $issuer;
     }
 
     private function clientId(): string

@@ -23,6 +23,26 @@ if (OidcClient::SCOPES !== 'openid profile email blessing_skin') {
     throw new RuntimeException('OIDC client must request the dedicated blessing_skin scope');
 }
 
+if (OidcClient::standardPasswordChangeUrl('https://auth.taixue.cc/') !==
+    'https://auth.taixue.cc/.well-known/change-password') {
+    throw new RuntimeException('OIDC password change URL must use the configured issuer');
+}
+foreach ([
+    'http://auth.taixue.cc',
+    'https://attacker.invalid@auth.taixue.cc',
+    'https://auth.taixue.cc?next=https://attacker.invalid',
+    'https://auth.taixue.cc#attacker',
+] as $unsafeIssuer) {
+    try {
+        OidcClient::standardPasswordChangeUrl($unsafeIssuer);
+        throw new RuntimeException('Expected rejection: unsafe OIDC issuer');
+    } catch (RuntimeException $e) {
+        if ($e->getMessage() === 'Expected rejection: unsafe OIDC issuer') {
+            throw $e;
+        }
+    }
+}
+
 $allowlist = new RolloutPolicy('allowlist', '1001, 1002');
 if (!$allowlist->allows('1001') || $allowlist->allows('1003')) {
     throw new RuntimeException('OIDC allowlist rollout policy failed');

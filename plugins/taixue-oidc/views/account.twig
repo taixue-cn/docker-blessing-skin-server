@@ -10,6 +10,10 @@
       {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
       {% if link %}
         <p>已安全绑定太学统一账号。登录时只使用稳定账号标识，不会按邮箱或昵称合并账号。</p>
+        <p>
+          <a class="btn btn-primary" href="{{ passwordChangeUrl }}">修改太学账号密码</a>
+        </p>
+        <p class="text-muted">密码由太学账号统一管理；迁移观察期内，皮肤站本地密码仍可作为备用登录方式。</p>
         {% if link.provisioned %}
           <div class="alert alert-warning">此账号由统一登录创建。设置可用的本地密码前不能解除绑定，以免账号被锁住。</div>
         {% else %}

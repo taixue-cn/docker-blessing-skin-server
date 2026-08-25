@@ -9,12 +9,13 @@ use Taixue\Oidc\OidcAudit;
 
 class AccountController
 {
-    public function show()
+    public function show(OidcClient $client)
     {
         $link = DB::table('taixue_oidc_links')->where('uid', Auth::id())->first();
 
         return view('Taixue\Oidc::account', [
             'link' => $link,
+            'passwordChangeUrl' => $client->passwordChangeUrl(),
             'success' => session()->pull('success'),
             'error' => session()->pull('error'),
         ]);
