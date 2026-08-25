@@ -27,8 +27,10 @@ $coordinatedControllerSource = file_get_contents(__DIR__.'/../src/Controllers/Co
 $revocationStoreSource = file_get_contents(__DIR__.'/../src/RevocationStore.php');
 $sessionGuardSource = file_get_contents(__DIR__.'/../src/OidcSessionGuard.php');
 foreach ([
-    "post('auth/taixue/backchannel-logout'",
-    "post('auth/taixue/coordinated-logout'",
+    "'auth/taixue/backchannel-logout'",
+    "'auth/taixue/coordinated-logout'",
+    'BackchannelLogoutController::class',
+    'CoordinatedLogoutController::class',
     'pushMiddlewareToGroup',
     'OidcSessionGuard::class',
 ] as $logoutIntegration) {

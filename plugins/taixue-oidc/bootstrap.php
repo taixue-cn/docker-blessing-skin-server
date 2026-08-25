@@ -52,10 +52,14 @@ return function (Filter $filter, Dispatcher $events) {
         // The OP calls this server-to-server endpoint. It deliberately stays
         // outside the browser `web` group and therefore outside CSRF/session
         // middleware; authenticity comes from the signed Logout Token.
-        Route::namespace('Taixue\Oidc\Controllers')
-            ->post('auth/taixue/backchannel-logout', 'BackchannelLogoutController@__invoke');
-        Route::namespace('Taixue\Oidc\Controllers')
-            ->post('auth/taixue/coordinated-logout', 'CoordinatedLogoutController@__invoke');
+        Route::post(
+            'auth/taixue/backchannel-logout',
+            [\Taixue\Oidc\Controllers\BackchannelLogoutController::class, '__invoke']
+        );
+        Route::post(
+            'auth/taixue/coordinated-logout',
+            [\Taixue\Oidc\Controllers\CoordinatedLogoutController::class, '__invoke']
+        );
         Route::namespace('Taixue\Oidc\Controllers')
             ->middleware('web')
             ->group(__DIR__.'/routes.php');
