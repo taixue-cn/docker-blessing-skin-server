@@ -14,6 +14,7 @@ use Taixue\Oidc\FreshAuthGrant;
 use Taixue\Oidc\OidcClient;
 use Taixue\Oidc\OidcAudit;
 use Taixue\Oidc\OidcFlowException;
+use Taixue\Oidc\OidcSession;
 use Taixue\Oidc\RolloutPolicy;
 use Taixue\Oidc\SafeRedirect;
 use Vectorface\Whip\Whip;
@@ -98,6 +99,7 @@ class AuthController
             // while back-channel logout is still a separate rollout gate.
             Auth::login($user, false);
             request()->session()->regenerate();
+            OidcSession::begin($claims, $uid);
             try {
                 $events->dispatch('auth.login.succeeded', [$user]);
                 event(new Events\UserLoggedIn($user));

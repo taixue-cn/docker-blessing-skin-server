@@ -6,6 +6,7 @@ require_once __DIR__.'/../src/SafeRedirect.php';
 use Firebase\JWT\JWT;
 use Taixue\Oidc\IdTokenVerifier;
 use Taixue\Oidc\LinkConsistency;
+use Taixue\Oidc\LogoutTokenVerifier;
 use Taixue\Oidc\FreshAuthGrant;
 use Taixue\Oidc\FreshAuthentication;
 use Taixue\Oidc\OidcClient;
@@ -19,6 +20,27 @@ $bootstrapSource = file_get_contents(__DIR__.'/../bootstrap.php');
 if (!str_contains($bootstrapSource, "config('session.secure')") ||
     !str_contains($bootstrapSource, 'SESSION_SECURE_COOKIE')) {
     throw new RuntimeException('OIDC must fail closed without Secure session cookies');
+}
+$backchannelControllerSource = file_get_contents(__DIR__.'/../src/Controllers/BackchannelLogoutController.php');
+$sessionGuardSource = file_get_contents(__DIR__.'/../src/OidcSessionGuard.php');
+foreach ([
+    "post('auth/taixue/backchannel-logout'",
+    'pushMiddlewareToGroup',
+    'OidcSessionGuard::class',
+] as $logoutIntegration) {
+    if (!str_contains($bootstrapSource, $logoutIntegration)) {
+        throw new RuntimeException('OIDC back-channel logout integration is incomplete');
+    }
+}
+if (!str_contains($backchannelControllerSource, "request('logout_token')") ||
+    !str_contains($backchannelControllerSource, "->header('Cache-Control', 'no-store')") ||
+    !str_contains($backchannelControllerSource, 'insertOrIgnore')) {
+    throw new RuntimeException('Back-channel logout must be no-store and replay-safe');
+}
+if (!str_contains($sessionGuardSource, 'Auth::logout()') ||
+    !str_contains($sessionGuardSource, '$request->session()->invalidate();') ||
+    !str_contains($sessionGuardSource, "Schema::hasTable('taixue_oidc_revocations')")) {
+    throw new RuntimeException('Revoked OIDC sessions must be invalidated locally');
 }
 if (!str_contains($oidcClientSource, "\$parameters['prompt'] = 'login'") ||
     !str_contains($oidcClientSource, "\$parameters['max_age'] = 0") ||
@@ -77,7 +99,8 @@ if (!str_contains($authControllerSource, '$e->reason()')) {
 }
 $callbacksSource = file_get_contents(__DIR__.'/../callbacks.php');
 if (str_contains($callbacksSource, "dropIfExists('taixue_oidc_links')") ||
-    str_contains($callbacksSource, "dropIfExists('taixue_oidc_audit_events')")) {
+    str_contains($callbacksSource, "dropIfExists('taixue_oidc_audit_events')") ||
+    str_contains($callbacksSource, "dropIfExists('taixue_oidc_revocations')")) {
     throw new RuntimeException('Plugin rollback must preserve OIDC migration data');
 }
 
@@ -264,6 +287,66 @@ $multiAudienceClaims = array_merge($baseClaims, [
     'azp' => $clientId,
 ]);
 $verifier->verify($encode($multiAudienceClaims), $jwks, $issuer, $clientId, $nonce);
+
+$logoutVerifier = new LogoutTokenVerifier();
+$logoutClaims = [
+    'iss' => $issuer,
+    'aud' => $clientId,
+    'sub' => $baseClaims['sub'],
+    'sid' => 'provider-session-1',
+    'iat' => time(),
+    'exp' => time() + 300,
+    'jti' => 'logout-request-1',
+    'events' => [LogoutTokenVerifier::EVENT => (object) []],
+];
+$verifiedLogout = $logoutVerifier->verify(
+    $encode($logoutClaims),
+    $jwks,
+    $issuer,
+    $clientId
+);
+if ($verifiedLogout['jti'] !== 'logout-request-1' ||
+    $verifiedLogout['sid'] !== 'provider-session-1') {
+    throw new RuntimeException('Valid Logout Token target was not preserved');
+}
+
+$assertLogoutFails = function (array $claims, string $label) use (
+    $encode,
+    $logoutVerifier,
+    $jwks,
+    $issuer,
+    $clientId
+) {
+    try {
+        $logoutVerifier->verify($encode($claims), $jwks, $issuer, $clientId);
+    } catch (RuntimeException) {
+        return;
+    }
+    throw new RuntimeException("Expected Logout Token rejection: $label");
+};
+$assertLogoutFails(array_merge($logoutClaims, ['iss' => 'https://attacker.invalid']), 'issuer mismatch');
+$assertLogoutFails(array_merge($logoutClaims, ['aud' => 'another-client']), 'audience mismatch');
+$assertLogoutFails(array_merge($logoutClaims, ['aud' => [$clientId, 'another-client']]), 'multiple audiences without azp');
+$assertLogoutFails(array_merge($logoutClaims, ['aud' => [$clientId, 'another-client'], 'azp' => 'another-client']), 'authorized party mismatch');
+$assertLogoutFails(array_merge($logoutClaims, ['exp' => time() - 120]), 'expired token');
+$assertLogoutFails(array_merge($logoutClaims, ['iat' => time() + 120]), 'future token');
+$assertLogoutFails(array_merge($logoutClaims, ['jti' => '']), 'missing jti');
+$assertLogoutFails(array_diff_key($logoutClaims, ['sub' => true, 'sid' => true]), 'missing target');
+$assertLogoutFails(array_merge($logoutClaims, ['events' => []]), 'missing logout event');
+$assertLogoutFails(array_merge($logoutClaims, ['events' => [LogoutTokenVerifier::EVENT => 'invalid']]), 'invalid logout event');
+$assertLogoutFails(array_merge($logoutClaims, ['nonce' => 'forbidden']), 'forbidden nonce');
+
+$subjectOnlyLogout = $logoutClaims;
+unset($subjectOnlyLogout['sid']);
+$logoutVerifier->verify($encode($subjectOnlyLogout), $jwks, $issuer, $clientId);
+$sidOnlyLogout = $logoutClaims;
+unset($sidOnlyLogout['sub']);
+$logoutVerifier->verify($encode($sidOnlyLogout), $jwks, $issuer, $clientId);
+$multiAudienceLogout = array_merge($logoutClaims, [
+    'aud' => [$clientId, 'another-client'],
+    'azp' => $clientId,
+]);
+$logoutVerifier->verify($encode($multiAudienceLogout), $jwks, $issuer, $clientId);
 
 LinkConsistency::assertSubjectOwner((object) ['uid' => 12345], 12345);
 try {

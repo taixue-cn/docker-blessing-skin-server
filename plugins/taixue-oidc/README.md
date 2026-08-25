@@ -17,6 +17,10 @@ Required environment variables:
 
 Register the exact callback URL `https://skin.taixue.cc/auth/taixue/callback`. During migration, keep local password login enabled and ask existing users to link from the authenticated account page. Auto-registration must remain disabled until collision and rollback metrics have been reviewed.
 
+Also register `https://skin.taixue.cc/auth/taixue/backchannel-logout` as the client's `backchannel_logout_uri` with `backchannel_logout_session_required=false`. The endpoint validates signed OIDC Logout Tokens and records a bounded revocation marker. OIDC-created Blessing Skin sessions check that marker at most every 30 seconds, so revocation works with file, database, or Redis session drivers without scanning or deleting raw session storage.
+
+After updating an already-enabled plugin, disable and re-enable it once during the maintenance window so `PluginWasEnabled` creates `taixue_oidc_revocations` before accepting OIDC logins. If the table is unexpectedly missing, only OIDC-created sessions fail closed; local Blessing Skin sessions and the rest of the site remain available.
+
 Existing-account login and linking request only `openid profile blessing_skin`. The plugin adds `email` only if automatic registration is explicitly enabled, so the gray migration does not ask users for data it does not use.
 
 For the first gray release, enable the plugin while keeping both UI switches off and add only test identities to `TAIXUE_OIDC_ALLOWED_SUBJECTS`. An empty allowlist or an unknown rollout mode fails closed. Switch the mode to `all` only after the gray acceptance gates pass.
@@ -33,7 +37,7 @@ Keep local password login and recovery available throughout the migration. Do no
 
 - Every successful login preserves the same Blessing Skin `uid`; no account is matched by email or nickname.
 - A signed `bs_uid` that disagrees with the stored `sub` mapping is rejected and investigated instead of silently choosing either account.
-- Existing local passwords still work, and Taixue password recovery can issue a fresh code after an older code expires. OIDC login must create only a session-scoped Blessing Skin login, never an implicit remember-me cookie. Resetting a Taixue password revokes provider-side remembered/OAuth sessions; revoking an already-issued Blessing Skin relying-party session still requires a separately accepted back-channel or coordinated logout design before full rollout.
+- Existing local passwords still work, and Taixue password recovery can issue a fresh code after an older code expires. OIDC login must create only a session-scoped Blessing Skin login, never an implicit remember-me cookie. Standard provider-initiated logout must invalidate an already-issued OIDC Blessing Skin session within 30 seconds. Password reset/change must additionally trigger provider logout or the coordinated subject-revocation outbox before full rollout; deleting only Hydra's remembered login/consent session is not sufficient evidence that an RP logout notification was sent.
 - Blessing Skin's own forgot-password flow marks the recovered local password as a usable fallback credential, so a provisioned user can safely unlink after recovery instead of being trapped in the provisioned state.
 - Provisioned accounts cannot unlink OAuth until a usable Blessing Skin local password has been established. They can create that fallback credential only after a fresh Taixue reauthentication; the one-time grant is bound to the same local UID and OIDC subject and expires after five minutes. Changing the Taixue unified-account password does not satisfy this gate; only a Blessing Skin local password update marks the account safe to unlink.
 - Tightening or emptying the rollout allowlist may block new login and linking, but must never block an already authenticated user from fresh-authenticated local-password setup or unlinking. Recovery must remain available during rollback.

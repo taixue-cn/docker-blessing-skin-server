@@ -33,9 +33,21 @@ return [
                 $table->timestamp('created_at')->useCurrent();
             });
         }
+        if (!Schema::hasTable('taixue_oidc_revocations')) {
+            Schema::create('taixue_oidc_revocations', function (Blueprint $table) {
+                $table->bigIncrements('id');
+                $table->string('jti', 191)->unique();
+                $table->string('subject', 191)->nullable()->index();
+                $table->string('sid', 191)->nullable()->index();
+                $table->timestamp('revoked_at')->index();
+                $table->timestamp('purge_after')->index();
+                $table->timestamp('created_at')->useCurrent();
+            });
+        }
     },
     PluginWasDeleted::class => function () {
-        // Account mappings and security audit records are migration data, not
-        // disposable plugin cache. Preserve both for rollback and reinstall.
+        // Account mappings, security audit records, and live revocations are
+        // migration/security data, not disposable plugin cache. Preserve them
+        // for rollback and reinstall.
     },
 ];

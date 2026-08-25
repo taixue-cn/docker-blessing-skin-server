@@ -6,6 +6,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\View;
 use Taixue\Oidc\RolloutPolicy;
+use Taixue\Oidc\OidcSessionGuard;
 
 return function (Filter $filter, Dispatcher $events) {
     if (!filter_var(env('TAIXUE_OIDC_ENABLED', false), FILTER_VALIDATE_BOOL)) {
@@ -48,16 +49,31 @@ return function (Filter $filter, Dispatcher $events) {
     ]);
 
     Hook::addRoute(function () {
+        // The OP calls this server-to-server endpoint. It deliberately stays
+        // outside the browser `web` group and therefore outside CSRF/session
+        // middleware; authenticity comes from the signed Logout Token.
+        Route::namespace('Taixue\Oidc\Controllers')
+            ->post('auth/taixue/backchannel-logout', 'BackchannelLogoutController@__invoke');
         Route::namespace('Taixue\Oidc\Controllers')
             ->middleware('web')
             ->group(__DIR__.'/routes.php');
     });
+
+    // Session-driver independent revocation: only OIDC-created sessions carry
+    // provenance, and at most one indexed revocation lookup is made per 30s.
+    app('router')->pushMiddlewareToGroup('web', OidcSessionGuard::class);
 
     $markLocalPasswordAvailable = static function ($user): void {
         DB::table('taixue_oidc_links')
             ->where('uid', $user->uid)
             ->update(['provisioned' => false, 'updated_at' => now()]);
     };
+
+    // Any login path starts without stale OIDC provenance. The OIDC callback
+    // adds fresh provenance only after the local login succeeds.
+    $events->listen('auth.login.ready', static function (): void {
+        session()->forget(\Taixue\Oidc\OidcSession::KEY);
+    });
 
     $events->listen('user.profile.updated', function ($user, $action) use ($markLocalPasswordAvailable) {
         if ($action === 'password') {
