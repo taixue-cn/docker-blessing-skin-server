@@ -39,6 +39,17 @@ jobs:
       - name: Run OIDC security checks
         working-directory: plugins/taixue-oidc
         run: php tests/security.php
+      - name: Package the tested plugin
+        if: github.event_name == 'push'
+        run: tar -czf taixue-oidc.tar.gz -C plugins/taixue-oidc .
+      - name: Preserve the tested deployment artifact
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: taixue-oidc-${{ github.sha }}
+          path: taixue-oidc.tar.gz
+          if-no-files-found: error
+          retention-days: 7
 
   deploy-production:
     if: github.event_name == 'push'
@@ -46,6 +57,25 @@ jobs:
     runs-on: ubuntu-latest
     environment: production
     steps:
+      - name: Download the tested plugin artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: taixue-oidc-${{ github.sha }}
+          path: .deployment
+      - name: Load the production deployment key
+        uses: webfactory/ssh-agent@v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      - name: Trust the production host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${{ secrets.SSH_PORT }}" -H \
+            "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts
+      - name: Transfer the tested plugin artifact
+        run: |
+          scp -P "${{ secrets.SSH_PORT }}" \
+            .deployment/taixue-oidc.tar.gz \
+            "${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:/tmp/taixue-oidc-${{ github.sha }}.tar.gz"
       - name: Deploy the tested plugin to the production bind mount
         uses: appleboy/ssh-action@v1.2.5
         env:
@@ -66,13 +96,13 @@ jobs:
             [ "${#DEPLOY_SHA}" -eq 40 ] || { echo 'Invalid deployment SHA length' >&2; exit 1; }
 
             SERVICE_ROOT=/home/taixue/data/services/blessing-skin-server
-            CHECKOUT="$SERVICE_ROOT/build/src"
             COMPOSE_FILE=/home/taixue/data/services/docker-compose.yml
             CONTAINER=taixue.blessing-skin-server
             LIVE=/var/www/html/plugins/taixue-oidc
             STAGE="/var/www/html/plugins/.taixue-oidc-stage-$DEPLOY_SHA"
             PREVIOUS="/var/www/html/plugins/.taixue-oidc-previous-$DEPLOY_SHA"
             BACKUP="$SERVICE_ROOT/backups/taixue-oidc-pre-$DEPLOY_SHA"
+            ARCHIVE="/tmp/taixue-oidc-$DEPLOY_SHA.tar.gz"
             HOST_STAGE=$(mktemp -d "/tmp/taixue-oidc-$DEPLOY_SHA-XXXXXX")
             SWAPPED=0
 
@@ -80,6 +110,7 @@ jobs:
               exit_code=$?
               trap - EXIT INT TERM
               rm -rf -- "$HOST_STAGE"
+              rm -f -- "$ARCHIVE"
               if [ "$SWAPPED" -eq 1 ]; then
                 echo 'Deployment failed; restoring the previous plugin' >&2
                 docker exec "$CONTAINER" php artisan plugin:disable taixue-oidc >/dev/null 2>&1 || true
@@ -95,15 +126,9 @@ jobs:
             }
             trap rollback EXIT INT TERM
 
-            git -C "$CHECKOUT" fetch --quiet origin \
-              master:refs/remotes/origin/master
-            git -C "$CHECKOUT" cat-file -e "$DEPLOY_SHA^{commit}"
-            [ "$(git -C "$CHECKOUT" rev-parse origin/master)" = "$DEPLOY_SHA" ] || {
-              echo 'origin/master does not match the requested deployment SHA' >&2
-              exit 1
-            }
-            mkdir -p "$HOST_STAGE"
-            git -C "$CHECKOUT" archive "$DEPLOY_SHA" plugins/taixue-oidc | tar -x -C "$HOST_STAGE"
+            [ -s "$ARCHIVE" ] || { echo 'Tested deployment artifact is missing' >&2; exit 1; }
+            tar -xzf "$ARCHIVE" -C "$HOST_STAGE"
+            [ -s "$HOST_STAGE/bootstrap.php" ] || { echo 'Deployment artifact is invalid' >&2; exit 1; }
 
             mkdir -p "$SERVICE_ROOT/backups"
             if [ ! -e "$BACKUP" ]; then
@@ -112,13 +137,12 @@ jobs:
 
             docker exec -u 0 "$CONTAINER" rm -rf -- "$STAGE" "$PREVIOUS"
             docker exec -u 0 "$CONTAINER" mkdir -p "$STAGE"
-            docker cp "$HOST_STAGE/plugins/taixue-oidc/." "$CONTAINER:$STAGE/"
+            docker cp "$HOST_STAGE/." "$CONTAINER:$STAGE/"
             if docker exec "$CONTAINER" test -f "$LIVE/.env"; then
               docker exec -u 0 "$CONTAINER" cp -p "$LIVE/.env" "$STAGE/.env"
             fi
             docker exec -u 0 "$CONTAINER" chown -R nobody:nogroup "$STAGE"
-            docker exec -u nobody -w "$STAGE" "$CONTAINER" \
-              composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
+            docker exec "$CONTAINER" test -s "$STAGE/vendor/autoload.php"
             docker exec -u nobody -w "$STAGE" "$CONTAINER" php tests/security.php
 
             docker exec "$CONTAINER" php artisan plugin:disable taixue-oidc
@@ -143,12 +167,13 @@ jobs:
               --request POST --header 'Content-Type: application/json' --data '{}' \
               https://skin.taixue.cc/auth/taixue/coordinated-logout)" = 400 ]
 
-            expected_bootstrap=$(sha256sum "$HOST_STAGE/plugins/taixue-oidc/bootstrap.php" | cut -d ' ' -f 1)
+            expected_bootstrap=$(sha256sum "$HOST_STAGE/bootstrap.php" | cut -d ' ' -f 1)
             deployed_bootstrap=$(docker exec "$CONTAINER" sha256sum "$LIVE/bootstrap.php" | cut -d ' ' -f 1)
             [ "$expected_bootstrap" = "$deployed_bootstrap" ]
 
             SWAPPED=0
             docker exec -u 0 "$CONTAINER" rm -rf -- "$PREVIOUS"
             rm -rf -- "$HOST_STAGE"
+            rm -f -- "$ARCHIVE"
             trap - EXIT INT TERM
             echo "Taixue OIDC $DEPLOY_SHA deployed successfully"
