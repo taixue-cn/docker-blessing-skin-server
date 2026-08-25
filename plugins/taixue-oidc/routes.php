@@ -11,5 +11,8 @@ Route::prefix('user/taixue-account')
     ->group(function () {
         Route::get('', 'AccountController@show');
         Route::get('link', 'AccountController@redirectToProvider');
+        Route::get('local-password/start', 'AccountController@redirectToLocalPassword');
+        Route::get('local-password', 'AccountController@showLocalPassword');
+        Route::post('local-password', 'AccountController@storeLocalPassword');
         Route::delete('link', 'AccountController@unlink');
     });

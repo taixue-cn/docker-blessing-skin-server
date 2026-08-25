@@ -12,6 +12,8 @@ class OidcClient
 
     private const FLOW_TTL_SECONDS = 600;
 
+    private const SENSITIVE_INTENTS = ['unlink', 'local_password'];
+
     public function __construct(private IdTokenVerifier $tokenVerifier)
     {
     }
@@ -42,8 +44,8 @@ class OidcClient
             'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '='),
             'code_challenge_method' => 'S256',
         ];
-        if ($intent === 'unlink') {
-            // Unlinking changes the account recovery boundary. A remembered
+        if (in_array($intent, self::SENSITIVE_INTENTS, true)) {
+            // These actions change the account recovery boundary. A remembered
             // SSO session is insufficient; require fresh Taixue authentication.
             $parameters['prompt'] = 'login';
             $parameters['max_age'] = 0;
@@ -88,6 +90,13 @@ class OidcClient
             throw new RuntimeException('太学账号没有返回身份令牌。');
         }
         $claims = $this->verifyIdToken($idToken, (string) $flow['nonce']);
+        if (in_array($flow['intent'] ?? '', self::SENSITIVE_INTENTS, true)) {
+            FreshAuthentication::assertClaims(
+                $claims,
+                (int) ($flow['created_at'] ?? 0),
+                time()
+            );
+        }
 
         return ['flow' => $flow, 'claims' => $claims];
     }

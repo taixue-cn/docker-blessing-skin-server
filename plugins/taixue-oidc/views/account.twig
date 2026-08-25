@@ -15,7 +15,10 @@
         </p>
         <p class="text-muted">太学统一账号密码用于“使用太学账号登录”，修改后会退出其他太学登录会话；它不会改动皮肤站本地备用密码。</p>
         {% if link.provisioned %}
-          <div class="alert alert-warning">此账号由统一登录创建，目前没有可供你使用的皮肤站本地备用密码。解除绑定前需先联系管理员设置备用密码，以免账号被锁住。</div>
+          <div class="alert alert-warning">此账号由统一登录创建，目前没有可供你使用的皮肤站本地备用密码。为保证 OAuth 故障或解绑后仍能登录，请先建立备用密码。</div>
+          <p>
+            <a class="btn btn-warning" href="{{ url('/user/taixue-account/local-password/start') }}">验证太学账号并设置备用密码</a>
+          </p>
         {% else %}
           <p>
             <a class="btn btn-default" href="{{ url('/user/profile') }}#change-password">管理皮肤站本地备用密码</a>

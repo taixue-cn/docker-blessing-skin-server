@@ -5,13 +5,16 @@ require __DIR__.'/../vendor/autoload.php';
 use Firebase\JWT\JWT;
 use Taixue\Oidc\IdTokenVerifier;
 use Taixue\Oidc\LinkConsistency;
+use Taixue\Oidc\FreshAuthGrant;
+use Taixue\Oidc\FreshAuthentication;
 use Taixue\Oidc\OidcClient;
 use Taixue\Oidc\RolloutPolicy;
 
 $oidcClientSource = file_get_contents(__DIR__.'/../src/OidcClient.php');
 if (!str_contains($oidcClientSource, "\$parameters['prompt'] = 'login'") ||
-    !str_contains($oidcClientSource, "\$parameters['max_age'] = 0")) {
-    throw new RuntimeException('OIDC unlink must require fresh Taixue authentication');
+    !str_contains($oidcClientSource, "\$parameters['max_age'] = 0") ||
+    !str_contains($oidcClientSource, "['unlink', 'local_password']")) {
+    throw new RuntimeException('Recovery-boundary changes must require fresh Taixue authentication');
 }
 $callbacksSource = file_get_contents(__DIR__.'/../callbacks.php');
 if (str_contains($callbacksSource, "dropIfExists('taixue_oidc_links')") ||
@@ -26,6 +29,41 @@ if (OidcClient::SCOPES !== 'openid profile email blessing_skin') {
 if (OidcClient::standardPasswordChangeUrl('https://auth.taixue.cc/') !==
     'https://auth.taixue.cc/.well-known/change-password') {
     throw new RuntimeException('OIDC password change URL must use the configured issuer');
+}
+
+$grant = FreshAuthGrant::payload(12345, 'stable-subject', 1_000);
+if (!FreshAuthGrant::payloadIsValid($grant, 12345, 'stable-subject', 1_100) ||
+    FreshAuthGrant::payloadIsValid($grant, 54321, 'stable-subject', 1_100) ||
+    FreshAuthGrant::payloadIsValid($grant, 12345, 'other-subject', 1_100) ||
+    FreshAuthGrant::payloadIsValid($grant, 12345, 'stable-subject', 1_301) ||
+    FreshAuthGrant::payloadIsValid($grant, 12345, 'stable-subject', 900)) {
+    throw new RuntimeException('Fresh-auth local-password grant binding or expiry failed');
+}
+FreshAuthentication::assertClaims(['auth_time' => 1_005], 1_000, 1_100);
+foreach ([
+    [],
+    ['auth_time' => 900],
+    ['auth_time' => 1_200],
+] as $staleClaims) {
+    try {
+        FreshAuthentication::assertClaims($staleClaims, 1_000, 1_100);
+        throw new RuntimeException('Expected rejection: stale fresh-authentication proof');
+    } catch (RuntimeException $e) {
+        if ($e->getMessage() === 'Expected rejection: stale fresh-authentication proof') {
+            throw $e;
+        }
+    }
+}
+$accountControllerSource = file_get_contents(__DIR__.'/../src/Controllers/AccountController.php');
+foreach ([
+    'FreshAuthGrant::consumeFor',
+    'lockForUpdate()',
+    '$user->changePassword',
+    "'LOCAL_PASSWORD_SETUP', 'SUCCEEDED'",
+] as $requiredLocalPasswordGate) {
+    if (!str_contains($accountControllerSource, $requiredLocalPasswordGate)) {
+        throw new RuntimeException('Local-password setup is missing a mandatory security gate');
+    }
 }
 foreach ([
     'http://auth.taixue.cc',

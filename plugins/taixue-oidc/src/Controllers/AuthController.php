@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Taixue\Oidc\LinkConsistency;
+use Taixue\Oidc\FreshAuthGrant;
 use Taixue\Oidc\OidcClient;
 use Taixue\Oidc\OidcAudit;
 use Taixue\Oidc\RolloutPolicy;
@@ -49,6 +50,9 @@ class AuthController
             }
             if (($flow['intent'] ?? null) === 'unlink') {
                 return $this->completeUnlink($flow, $claims, $audit);
+            }
+            if (($flow['intent'] ?? null) === 'local_password') {
+                return $this->completeLocalPasswordAuthorization($flow, $claims, $audit);
             }
 
             $claimedUid = $this->claimedBsUid($claims);
@@ -276,6 +280,30 @@ class AuthController
         });
 
         return redirect('/user/taixue-account')->with('success', '已解除太学账号绑定。');
+    }
+
+    private function completeLocalPasswordAuthorization(array $flow, array $claims, OidcAudit $audit)
+    {
+        $user = Auth::user();
+        if (!$user || (int) ($flow['uid'] ?? 0) !== (int) $user->uid) {
+            throw new \RuntimeException('皮肤站登录状态已变化，请重新发起备用密码设置。');
+        }
+        $claimedUid = $this->claimedBsUid($claims);
+        if ($claimedUid && $claimedUid !== (int) $user->uid) {
+            throw new \RuntimeException('当前太学账号与皮肤站账号不一致。');
+        }
+        $link = DB::table('taixue_oidc_links')->where('uid', $user->uid)->first();
+        if (!$link || $link->subject !== $claims['sub'] || !$link->provisioned) {
+            throw new \RuntimeException('账号绑定状态已经变化，请刷新后重试。');
+        }
+
+        request()->session()->regenerate();
+        FreshAuthGrant::issue((int) $user->uid, $claims['sub']);
+        $audit->record('LOCAL_PASSWORD_AUTH', 'SUCCEEDED', (int) $user->uid, $claims['sub'], [
+            'source' => 'fresh_taixue_authentication',
+        ]);
+
+        return redirect('/user/taixue-account/local-password');
     }
 
     private function error(string $message, string $requestId)
