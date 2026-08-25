@@ -85,11 +85,18 @@ class AuthController
             $uid = (int) $link->uid;
             $user = User::find($link->uid);
             if (!$user) {
-                throw new \RuntimeException('绑定的皮肤站账号不存在，请联系管理员修复。');
+                throw new OidcFlowException(
+                    'local_account_missing',
+                    '绑定的皮肤站账号不存在，请联系管理员修复。'
+                );
             }
 
             $events->dispatch('auth.login.ready', [$user]);
-            Auth::login($user, true);
+            // OIDC does not expose Blessing Skin's local "remember me" choice.
+            // Never mint a long-lived recaller cookie implicitly: the local
+            // browser session remains bounded by the configured session TTL
+            // while back-channel logout is still a separate rollout gate.
+            Auth::login($user, false);
             request()->session()->regenerate();
             try {
                 $events->dispatch('auth.login.succeeded', [$user]);
@@ -108,13 +115,13 @@ class AuthController
                 session()->pull('last_requested_path')
             ));
         } catch (\Throwable $e) {
-            if (!$e instanceof \RuntimeException) {
+            if (!$e instanceof OidcFlowException) {
                 report($e);
             }
 
             $reason = $e instanceof OidcFlowException
                 ? $e->reason()
-                : ($e instanceof \RuntimeException ? 'account_state_rejected' : 'internal_error');
+                : 'internal_error';
             try {
                 $audit->record('CALLBACK', 'FAILED', $uid, $subject, ['reason' => $reason]);
             } catch (\Throwable $auditError) {
@@ -122,7 +129,7 @@ class AuthController
             }
             $audit->warn('CALLBACK', $reason);
 
-            $message = $e instanceof \RuntimeException
+            $message = $e instanceof OidcFlowException
                 ? $e->getMessage()
                 : '太学账号登录暂时不可用，请稍后重试。';
 
@@ -134,21 +141,21 @@ class AuthController
     {
         $user = Auth::user();
         if (!$user || (int) ($flow['uid'] ?? 0) !== (int) $user->uid) {
-            throw new \RuntimeException('皮肤站登录状态已变化，请重新发起绑定。');
+            throw new OidcFlowException('local_session_changed', '皮肤站登录状态已变化，请重新发起绑定。');
         }
         $claimedUid = $this->claimedBsUid($claims);
         if ($claimedUid && $claimedUid !== (int) $user->uid) {
-            throw new \RuntimeException('太学账号已绑定另一个皮肤站账号，请先在统一账号中心处理冲突。');
+            throw new OidcFlowException('signed_uid_conflict', '太学账号已绑定另一个皮肤站账号，请先在统一账号中心处理冲突。');
         }
 
         DB::transaction(function () use ($user, $claims, $audit) {
             $bySubject = DB::table('taixue_oidc_links')->where('subject', $claims['sub'])->lockForUpdate()->first();
             if ($bySubject && (int) $bySubject->uid !== (int) $user->uid) {
-                throw new \RuntimeException('这个太学账号已经绑定了其他皮肤站账号。');
+                throw new OidcFlowException('subject_already_linked', '这个太学账号已经绑定了其他皮肤站账号。');
             }
             $byUser = DB::table('taixue_oidc_links')->where('uid', $user->uid)->lockForUpdate()->first();
             if ($byUser && $byUser->subject !== $claims['sub']) {
-                throw new \RuntimeException('当前皮肤站账号已经绑定了其他太学账号。');
+                throw new OidcFlowException('local_account_already_linked', '当前皮肤站账号已经绑定了其他太学账号。');
             }
             if (!$byUser) {
                 DB::table('taixue_oidc_links')->insert([
@@ -172,7 +179,7 @@ class AuthController
         return DB::transaction(function () use ($uid, $subject, $audit) {
             $user = User::find($uid);
             if (!$user) {
-                throw new \RuntimeException('太学账号绑定的皮肤站账号不存在，请联系管理员修复。');
+                throw new OidcFlowException('local_account_missing', '太学账号绑定的皮肤站账号不存在，请联系管理员修复。');
             }
 
             $bySubject = DB::table('taixue_oidc_links')->where('subject', $subject)->lockForUpdate()->first();
@@ -182,7 +189,7 @@ class AuthController
             }
             $byUser = DB::table('taixue_oidc_links')->where('uid', $uid)->lockForUpdate()->first();
             if ($byUser && $byUser->subject !== $subject) {
-                throw new \RuntimeException('皮肤站账号已绑定其他太学账号，请联系管理员处理冲突。');
+                throw new OidcFlowException('local_account_already_linked', '皮肤站账号已绑定其他太学账号，请联系管理员处理冲突。');
             }
             if (!$byUser) {
                 DB::table('taixue_oidc_links')->insert([
@@ -211,7 +218,7 @@ class AuthController
             'options' => ['min_range' => 1, 'max_range' => 4294967295],
         ]);
         if ($value === false) {
-            throw new \RuntimeException('太学账号返回了无效的皮肤站账号标识。');
+            throw new OidcFlowException('signed_uid_invalid', '太学账号返回了无效的皮肤站账号标识。');
         }
 
         return $value;
@@ -227,7 +234,7 @@ class AuthController
 
             $email = ($claims['email_verified'] ?? false) ? ($claims['email'] ?? null) : null;
             if ($email && User::where('email', $email)->exists()) {
-                throw new \RuntimeException('同邮箱的皮肤站账号已经存在。请先用原方式登录，再到账号页面完成绑定。');
+                throw new OidcFlowException('email_collision', '同邮箱的皮肤站账号已经存在。请先用原方式登录，再到账号页面完成绑定。');
             }
 
             $user = new User();
@@ -268,11 +275,11 @@ class AuthController
     {
         $user = Auth::user();
         if (!$user || (int) ($flow['uid'] ?? 0) !== (int) $user->uid) {
-            throw new \RuntimeException('皮肤站登录状态已变化，请重新发起解绑。');
+            throw new OidcFlowException('local_session_changed', '皮肤站登录状态已变化，请重新发起解绑。');
         }
         $claimedUid = $this->claimedBsUid($claims);
         if ($claimedUid && $claimedUid !== (int) $user->uid) {
-            throw new \RuntimeException('当前太学账号与待解绑的皮肤站账号不一致。');
+            throw new OidcFlowException('signed_uid_conflict', '当前太学账号与待解绑的皮肤站账号不一致。');
         }
 
         DB::transaction(function () use ($user, $claims, $audit) {
@@ -281,10 +288,10 @@ class AuthController
                 ->lockForUpdate()
                 ->first();
             if (!$link || $link->subject !== $claims['sub']) {
-                throw new \RuntimeException('账号绑定已经变化，请刷新后重试。');
+                throw new OidcFlowException('link_state_changed', '账号绑定已经变化，请刷新后重试。');
             }
             if ($link->provisioned) {
-                throw new \RuntimeException('此账号尚未设置可用的本地密码，暂时不能解除绑定。');
+                throw new OidcFlowException('local_password_required', '此账号尚未设置可用的本地密码，暂时不能解除绑定。');
             }
 
             DB::table('taixue_oidc_links')->where('uid', $user->uid)->delete();
@@ -300,15 +307,15 @@ class AuthController
     {
         $user = Auth::user();
         if (!$user || (int) ($flow['uid'] ?? 0) !== (int) $user->uid) {
-            throw new \RuntimeException('皮肤站登录状态已变化，请重新发起备用密码设置。');
+            throw new OidcFlowException('local_session_changed', '皮肤站登录状态已变化，请重新发起备用密码设置。');
         }
         $claimedUid = $this->claimedBsUid($claims);
         if ($claimedUid && $claimedUid !== (int) $user->uid) {
-            throw new \RuntimeException('当前太学账号与皮肤站账号不一致。');
+            throw new OidcFlowException('signed_uid_conflict', '当前太学账号与皮肤站账号不一致。');
         }
         $link = DB::table('taixue_oidc_links')->where('uid', $user->uid)->first();
         if (!$link || $link->subject !== $claims['sub'] || !$link->provisioned) {
-            throw new \RuntimeException('账号绑定状态已经变化，请刷新后重试。');
+            throw new OidcFlowException('link_state_changed', '账号绑定状态已经变化，请刷新后重试。');
         }
 
         request()->session()->regenerate();

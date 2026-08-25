@@ -40,6 +40,17 @@ if ($flowRead === false || $stateCheck === false || $flowConsume === false ||
 if (!str_contains($authControllerSource, 'request()->session()->regenerate();')) {
     throw new RuntimeException('OIDC login must rotate the local session identifier');
 }
+if (!str_contains($authControllerSource, 'Auth::login($user, false);') ||
+    str_contains($authControllerSource, 'Auth::login($user, true);')) {
+    throw new RuntimeException('OIDC login must not create an implicit remember-me cookie');
+}
+if (!str_contains($authControllerSource, '$message = $e instanceof OidcFlowException') ||
+    str_contains($authControllerSource, '$message = $e instanceof \\RuntimeException')) {
+    throw new RuntimeException('Only bounded OIDC flow errors may be exposed to the browser');
+}
+if (str_contains($authControllerSource, "'account_state_rejected'")) {
+    throw new RuntimeException('OIDC account failures must retain bounded actionable reasons');
+}
 foreach ([
     '/user/profile' => '/user/profile',
     'https://skin.taixue.cc/user/profile?tab=oauth' => 'https://skin.taixue.cc/user/profile?tab=oauth',
