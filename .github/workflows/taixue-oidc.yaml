@@ -95,7 +95,8 @@ jobs:
             }
             trap rollback EXIT INT TERM
 
-            git -C "$CHECKOUT" fetch --quiet origin master
+            git -C "$CHECKOUT" fetch --quiet origin \
+              master:refs/remotes/origin/master
             git -C "$CHECKOUT" cat-file -e "$DEPLOY_SHA^{commit}"
             [ "$(git -C "$CHECKOUT" rev-parse origin/master)" = "$DEPLOY_SHA" ] || {
               echo 'origin/master does not match the requested deployment SHA' >&2
