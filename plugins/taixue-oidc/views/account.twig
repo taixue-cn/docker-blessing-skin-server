@@ -11,12 +11,15 @@
       {% if link %}
         <p>已安全绑定太学统一账号。登录时只使用稳定账号标识，不会按邮箱或昵称合并账号。</p>
         <p>
-          <a class="btn btn-primary" href="{{ passwordChangeUrl }}">修改太学账号密码</a>
+          <a class="btn btn-primary" href="{{ passwordChangeUrl }}">修改太学统一账号密码</a>
         </p>
-        <p class="text-muted">密码由太学账号统一管理；迁移观察期内，皮肤站本地密码仍可作为备用登录方式。</p>
+        <p class="text-muted">太学统一账号密码用于“使用太学账号登录”，修改后会退出其他太学登录会话；它不会改动皮肤站本地备用密码。</p>
         {% if link.provisioned %}
-          <div class="alert alert-warning">此账号由统一登录创建。设置可用的本地密码前不能解除绑定，以免账号被锁住。</div>
+          <div class="alert alert-warning">此账号由统一登录创建，目前没有可供你使用的皮肤站本地备用密码。解除绑定前需先联系管理员设置备用密码，以免账号被锁住。</div>
         {% else %}
+          <p>
+            <a class="btn btn-default" href="{{ url('/user/profile') }}#change-password">管理皮肤站本地备用密码</a>
+          </p>
           <form method="post" action="{{ url('/user/taixue-account/link') }}">
             {{ csrf_field() }}
             <input type="hidden" name="_method" value="DELETE">

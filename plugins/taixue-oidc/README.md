@@ -27,7 +27,7 @@ Keep local password login and recovery available throughout the migration. Do no
 - Every successful login preserves the same Blessing Skin `uid`; no account is matched by email or nickname.
 - A signed `bs_uid` that disagrees with the stored `sub` mapping is rejected and investigated instead of silently choosing either account.
 - Existing local passwords still work, Taixue password recovery can issue a fresh code after an older code expires, and resetting a Taixue password revokes remembered and OAuth sessions.
-- Provisioned accounts cannot unlink OAuth until a usable local password has been established. A password update marks the account safe to unlink.
+- Provisioned accounts cannot unlink OAuth until a usable Blessing Skin local password has been established. Changing the Taixue unified-account password does not satisfy this gate; only a Blessing Skin local password update marks the account safe to unlink.
 - Failed, cancelled, expired, replayed, wrong-audience, and wrong-`azp` authorization responses leave the local account and link table unchanged.
 - Operators can correlate callback failures without logging authorization codes, tokens, client secrets, passwords, or recovery codes.
 - Link, login, registration, rejection, and unlink events are written to `taixue_oidc_audit_events` with a request ID, actor UID when known, stable subject when verified, IP, user agent, and bounded non-secret metadata. Error pages expose the same request ID.
