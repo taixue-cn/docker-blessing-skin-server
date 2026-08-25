@@ -13,6 +13,7 @@ Required environment variables:
 - `TAIXUE_OIDC_ALLOWED_SUBJECTS=` (comma-separated stable OIDC subjects)
 - `TAIXUE_OIDC_SHOW_LOGIN_BUTTON=false`
 - `TAIXUE_OIDC_SHOW_ACCOUNT_MENU=false`
+- `SESSION_SECURE_COOKIE=true` (required; the plugin fails closed without a Secure session cookie)
 
 Register the exact callback URL `https://skin.taixue.cc/auth/taixue/callback`. During migration, keep local password login enabled and ask existing users to link from the authenticated account page. Auto-registration must remain disabled until collision and rollback metrics have been reviewed.
 

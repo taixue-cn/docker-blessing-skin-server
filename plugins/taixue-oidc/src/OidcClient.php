@@ -56,13 +56,29 @@ class OidcClient
 
     public function complete(): array
     {
-        $flow = session()->pull('taixue_oidc_flow');
-        if (!is_array($flow) || time() - ($flow['created_at'] ?? 0) > self::FLOW_TTL_SECONDS) {
+        $flow = session()->get('taixue_oidc_flow');
+        if (!is_array($flow)) {
+            session()->forget('taixue_oidc_flow');
             throw new OidcFlowException('flow_expired', '登录请求已失效，请重新开始。');
         }
-        if (!hash_equals((string) $flow['state'], (string) request('state'))) {
+        $now = time();
+        $createdAt = filter_var($flow['created_at'] ?? null, FILTER_VALIDATE_INT);
+        if ($createdAt === false || $createdAt <= 0 || $createdAt > $now + 60 ||
+            $now - $createdAt > self::FLOW_TTL_SECONDS) {
+            session()->forget('taixue_oidc_flow');
+            throw new OidcFlowException('flow_expired', '登录请求已失效，请重新开始。');
+        }
+        $expectedState = $flow['state'] ?? null;
+        $returnedState = request('state');
+        if (!is_string($expectedState) || !is_string($returnedState) ||
+            !hash_equals($expectedState, $returnedState)) {
+            // A forged callback must not consume the legitimate pending flow.
             throw new OidcFlowException('state_mismatch', '登录状态校验失败，请重新开始。');
         }
+        // Consume the flow only after state validation and before exchanging
+        // the code, so a valid callback is single-use even if token exchange
+        // or account reconciliation later fails.
+        session()->forget('taixue_oidc_flow');
         if (request()->filled('error')) {
             throw new OidcFlowException('authorization_rejected', '太学账号未完成授权，请重新开始。');
         }

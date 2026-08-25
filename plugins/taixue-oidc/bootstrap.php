@@ -11,6 +11,12 @@ return function (Filter $filter, Dispatcher $events) {
     if (!filter_var(env('TAIXUE_OIDC_ENABLED', false), FILTER_VALIDATE_BOOL)) {
         return;
     }
+    if (!config('session.secure')) {
+        logger()->critical(
+            'Taixue OIDC disabled because SESSION_SECURE_COOKIE is not enabled'
+        );
+        return;
+    }
 
     app()->singleton(RolloutPolicy::class, fn () => RolloutPolicy::fromEnvironment());
 

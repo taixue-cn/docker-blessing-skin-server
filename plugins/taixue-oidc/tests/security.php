@@ -1,6 +1,7 @@
 <?php
 
 require __DIR__.'/../vendor/autoload.php';
+require_once __DIR__.'/../src/SafeRedirect.php';
 
 use Firebase\JWT\JWT;
 use Taixue\Oidc\IdTokenVerifier;
@@ -10,8 +11,15 @@ use Taixue\Oidc\FreshAuthentication;
 use Taixue\Oidc\OidcClient;
 use Taixue\Oidc\OidcFlowException;
 use Taixue\Oidc\RolloutPolicy;
+use Taixue\Oidc\SafeRedirect;
 
 $oidcClientSource = file_get_contents(__DIR__.'/../src/OidcClient.php');
+$authControllerSource = file_get_contents(__DIR__.'/../src/Controllers/AuthController.php');
+$bootstrapSource = file_get_contents(__DIR__.'/../bootstrap.php');
+if (!str_contains($bootstrapSource, "config('session.secure')") ||
+    !str_contains($bootstrapSource, 'SESSION_SECURE_COOKIE')) {
+    throw new RuntimeException('OIDC must fail closed without Secure session cookies');
+}
 if (!str_contains($oidcClientSource, "\$parameters['prompt'] = 'login'") ||
     !str_contains($oidcClientSource, "\$parameters['max_age'] = 0") ||
     !str_contains($oidcClientSource, "['unlink', 'local_password']")) {
@@ -19,6 +27,33 @@ if (!str_contains($oidcClientSource, "\$parameters['prompt'] = 'login'") ||
 }
 if (str_contains($oidcClientSource, "request('error')")) {
     throw new RuntimeException('OAuth provider error input must not be reflected to users');
+}
+
+$flowRead = strpos($oidcClientSource, "session()->get('taixue_oidc_flow')");
+$stateCheck = strpos($oidcClientSource, 'hash_equals($expectedState, $returnedState)');
+$flowConsume = strpos($oidcClientSource, "session()->forget('taixue_oidc_flow')", $stateCheck ?: 0);
+if ($flowRead === false || $stateCheck === false || $flowConsume === false ||
+    !($flowRead < $stateCheck && $stateCheck < $flowConsume) ||
+    str_contains($oidcClientSource, "session()->pull('taixue_oidc_flow')")) {
+    throw new RuntimeException('OIDC state must be validated before the pending flow is consumed');
+}
+if (!str_contains($authControllerSource, 'request()->session()->regenerate();')) {
+    throw new RuntimeException('OIDC login must rotate the local session identifier');
+}
+foreach ([
+    '/user/profile' => '/user/profile',
+    'https://skin.taixue.cc/user/profile?tab=oauth' => 'https://skin.taixue.cc/user/profile?tab=oauth',
+    'https://evil.example/' => 'https://skin.taixue.cc/user',
+    '//evil.example/' => 'https://skin.taixue.cc/user',
+    '/\\evil.example/' => 'https://skin.taixue.cc/user',
+] as $candidate => $expected) {
+    if (SafeRedirect::resolve(
+        $candidate,
+        'https://skin.taixue.cc',
+        'https://skin.taixue.cc/user'
+    ) !== $expected) {
+        throw new RuntimeException('OIDC post-login redirects must stay on the local site');
+    }
 }
 $typedFailure = new OidcFlowException('nonce_mismatch', 'safe message');
 if ($typedFailure->reason() !== 'nonce_mismatch' ||

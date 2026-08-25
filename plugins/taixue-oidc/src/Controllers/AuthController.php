@@ -15,6 +15,7 @@ use Taixue\Oidc\OidcClient;
 use Taixue\Oidc\OidcAudit;
 use Taixue\Oidc\OidcFlowException;
 use Taixue\Oidc\RolloutPolicy;
+use Taixue\Oidc\SafeRedirect;
 use Vectorface\Whip\Whip;
 
 class AuthController
@@ -89,6 +90,7 @@ class AuthController
 
             $events->dispatch('auth.login.ready', [$user]);
             Auth::login($user, true);
+            request()->session()->regenerate();
             try {
                 $events->dispatch('auth.login.succeeded', [$user]);
                 event(new Events\UserLoggedIn($user));
@@ -102,7 +104,9 @@ class AuthController
                 throw $loginError;
             }
 
-            return redirect(session()->pull('last_requested_path', url('/user')));
+            return redirect($this->safeRedirectTarget(
+                session()->pull('last_requested_path')
+            ));
         } catch (\Throwable $e) {
             if (!$e instanceof \RuntimeException) {
                 report($e);
@@ -322,5 +326,10 @@ class AuthController
             'message' => $message,
             'request_id' => $requestId,
         ], 400)->header('X-Request-ID', $requestId);
+    }
+
+    private function safeRedirectTarget($candidate): string
+    {
+        return SafeRedirect::resolve($candidate, url('/'), url('/user'));
     }
 }
