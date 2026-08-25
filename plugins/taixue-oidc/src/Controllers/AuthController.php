@@ -39,10 +39,16 @@ class AuthController
             $claims = $result['claims'];
             $subject = $claims['sub'];
             $intent = (string) ($flow['intent'] ?? 'login');
-            if (!$rollout->allowsIntent($claims['sub'], $intent)) {
-                $audit->record('LOGIN', 'REJECTED', null, $subject, ['reason' => 'rollout_denied']);
+            if (!$rollout->allowsClaims($claims, $intent)) {
+                $audit->record(
+                    $intent === 'link' ? 'LINK' : 'LOGIN',
+                    'REJECTED',
+                    null,
+                    $subject,
+                    ['reason' => 'rollout_denied']
+                );
                 return $this->error(
-                    '太学账号登录正在小范围灰度，此账号暂未开放。原皮肤站登录仍可正常使用。',
+                    $rollout->denialMessage(),
                     $audit->requestId()
                 );
             }

@@ -113,6 +113,22 @@ if (!(new RolloutPolicy('all', ''))->allows('1001')) {
 if ((new RolloutPolicy('invalid', '1001'))->allows('1001')) {
     throw new RuntimeException('Invalid OIDC rollout mode must fail closed');
 }
+$bound = new RolloutPolicy('bound', '');
+if (!$bound->allowsClaims(['sub' => '1003', 'bs_uid' => 42], 'login') ||
+    !$bound->allowsClaims(['sub' => '1003', 'bs_uid' => '42'], 'link') ||
+    $bound->allowsClaims(['sub' => '1003'], 'login') ||
+    $bound->allowsClaims(['sub' => '1003', 'bs_uid' => 0], 'login') ||
+    $bound->allowsClaims(['sub' => '1003', 'bs_uid' => 'not-an-id'], 'login') ||
+    $bound->allowsClaims(['bs_uid' => 42], 'login')) {
+    throw new RuntimeException('Bound-account OIDC rollout policy failed closed');
+}
+if (!$bound->allowsClaims(['sub' => '1003'], 'unlink') ||
+    !$bound->allowsClaims(['sub' => '1003'], 'local_password')) {
+    throw new RuntimeException('Bound-account rollout must preserve recovery intents');
+}
+if (strpos($bound->denialMessage(), '尚未关联') === false) {
+    throw new RuntimeException('Bound-account rollout must explain the next action');
+}
 
 $privateKey = openssl_pkey_new([
     'digest_alg' => 'sha256',
