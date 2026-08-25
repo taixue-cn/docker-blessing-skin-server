@@ -41,6 +41,12 @@ return function (Filter $filter, Dispatcher $events) {
         ]);
     }
 
+    Hook::addMenuItem('admin', 5, [
+        'title' => 'Taixue\Oidc::general.admin-menu',
+        'link' => '/admin/taixue-oidc',
+        'icon' => 'fa-shield-alt',
+    ]);
+
     Hook::addRoute(function () {
         Route::namespace('Taixue\Oidc\Controllers')
             ->middleware('web')

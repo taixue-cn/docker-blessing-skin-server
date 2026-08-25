@@ -81,8 +81,24 @@ if (str_contains($bootstrapSource, "function (\$user, \$password)")) {
     throw new RuntimeException('Password recovery listener must not bind the plaintext password');
 }
 
-if (OidcClient::SCOPES !== 'openid profile email blessing_skin') {
-    throw new RuntimeException('OIDC client must request the dedicated blessing_skin scope');
+$routesSource = file_get_contents(__DIR__.'/../routes.php');
+$adminControllerSource = file_get_contents(__DIR__.'/../src/Controllers/AdminController.php');
+if (!str_contains($routesSource, "middleware(['auth', 'role:admin'])") ||
+    !str_contains($routesSource, "admin/taixue-oidc")) {
+    throw new RuntimeException('OIDC rollout telemetry must be restricted to skin-site admins');
+}
+foreach (['TAIXUE_OIDC_CLIENT_SECRET', 'TAIXUE_OIDC_ALLOWED_SUBJECTS'] as $sensitiveConfig) {
+    if (str_contains($adminControllerSource, "'$sensitiveConfig' =>") ||
+        str_contains($adminControllerSource, "\"$sensitiveConfig\" =>")) {
+        throw new RuntimeException('OIDC rollout telemetry must not expose sensitive configuration');
+    }
+}
+
+if (OidcClient::scopesFor(false) !== 'openid profile blessing_skin' ||
+    OidcClient::scopesFor(true) !== 'openid profile blessing_skin email') {
+    throw new RuntimeException(
+        'OIDC client must request blessing_skin while limiting email to auto-registration'
+    );
 }
 
 if (OidcClient::standardPasswordChangeUrl('https://auth.taixue.cc/') !==

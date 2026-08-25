@@ -16,3 +16,7 @@ Route::prefix('user/taixue-account')
         Route::post('local-password', 'AccountController@storeLocalPassword');
         Route::delete('link', 'AccountController@unlink');
     });
+
+Route::get('admin/taixue-oidc', 'AdminController@show')
+    ->middleware(['auth', 'role:admin'])
+    ->name('taixue-oidc.admin');

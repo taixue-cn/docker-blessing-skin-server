@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Http;
 
 class OidcClient
 {
-    public const SCOPES = 'openid profile email blessing_skin';
+    public const BASE_SCOPES = 'openid profile blessing_skin';
 
     private const FLOW_TTL_SECONDS = 600;
 
@@ -37,7 +37,10 @@ class OidcClient
             'client_id' => $this->clientId(),
             'redirect_uri' => route('taixue-oidc.callback'),
             'response_type' => 'code',
-            'scope' => self::SCOPES,
+            'scope' => self::scopesFor(filter_var(
+                env('TAIXUE_OIDC_AUTO_REGISTER', false),
+                FILTER_VALIDATE_BOOL
+            )),
             'state' => $state,
             'nonce' => $nonce,
             'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '='),
@@ -119,6 +122,14 @@ class OidcClient
     public function passwordChangeUrl(): string
     {
         return self::standardPasswordChangeUrl($this->issuer());
+    }
+
+    public static function scopesFor(bool $autoRegister): string
+    {
+        // Existing-account login and linking use only stable identifiers and
+        // display profile data. Email is requested only when the explicitly
+        // enabled auto-registration path may need to create a local account.
+        return self::BASE_SCOPES.($autoRegister ? ' email' : '');
     }
 
     public static function standardPasswordChangeUrl(string $issuer): string

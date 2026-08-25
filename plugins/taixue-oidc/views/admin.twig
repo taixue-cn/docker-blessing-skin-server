@@ -1,0 +1,88 @@
+{% extends 'admin.base' %}
+
+{% block title %}太学账号迁移{% endblock %}
+
+{% block content %}
+  <div class="card mb-3">
+    <div class="card-header"><h3 class="card-title">太学账号迁移</h3></div>
+    <div class="card-body">
+      <p class="text-muted">用于判断 OAuth 灰度是否可以扩量。此页不展示客户端密钥、令牌或允许名单内容。</p>
+      {% if not secureCookie %}
+        <div class="alert alert-danger">会话 Cookie 未启用 Secure，插件会保持关闭。</div>
+      {% endif %}
+      {% if totalLinks == 0 %}
+        <div class="alert alert-warning">尚无真实账号映射。完成至少一个允许名单账号的登录、回退和解绑演练前，不要开放全量入口。</div>
+      {% endif %}
+      <div class="row">
+        <div class="col-md-3"><strong>账号映射</strong><div class="h3 mt-2">{{ totalLinks }}</div></div>
+        <div class="col-md-3"><strong>已有本地备用密码</strong><div class="h3 mt-2">{{ fallbackReadyLinks }}</div></div>
+        <div class="col-md-3"><strong>仍需建立备用密码</strong><div class="h3 mt-2">{{ provisionedLinks }}</div></div>
+        <div class="col-md-3"><strong>允许名单人数</strong><div class="h3 mt-2">{{ allowlistCount }}</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header"><h3 class="card-title">当前灰度配置</h3></div>
+    <div class="card-body table-responsive">
+      <table class="table table-sm mb-0">
+        <tbody>
+          <tr><th>模式</th><td><code>{{ rolloutMode }}</code></td></tr>
+          <tr><th>登录入口</th><td>{{ loginButtonVisible ? '已显示' : '已隐藏' }}</td></tr>
+          <tr><th>账号管理入口</th><td>{{ accountMenuVisible ? '已显示' : '已隐藏' }}</td></tr>
+          <tr><th>自动注册</th><td>{{ autoRegister ? '已启用' : '已禁用' }}</td></tr>
+          <tr><th>Secure Cookie</th><td>{{ secureCookie ? '正常' : '异常' }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header"><h3 class="card-title">最近 24 小时</h3></div>
+    <div class="card-body">
+      <div class="row">
+        <div class="col-md-4"><strong>成功</strong><div class="h3 mt-2 text-success">{{ daySucceeded }}</div></div>
+        <div class="col-md-4"><strong>拒绝</strong><div class="h3 mt-2 text-warning">{{ dayRejected }}</div></div>
+        <div class="col-md-4"><strong>失败</strong><div class="h3 mt-2 text-danger">{{ dayFailed }}</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header"><h3 class="card-title">最近 7 天事件</h3></div>
+    <div class="card-body table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th>事件</th><th>结果</th><th>次数</th></tr></thead>
+        <tbody>
+          {% for event in weekEvents %}
+            <tr><td>{{ event.event_type }}</td><td>{{ event.outcome }}</td><td>{{ event.aggregate }}</td></tr>
+          {% else %}
+            <tr><td colspan="3" class="text-muted">最近 7 天没有 OAuth 事件。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><h3 class="card-title">最近异常</h3></div>
+    <div class="card-body table-responsive">
+      <table class="table table-sm">
+        <thead><tr><th>时间</th><th>事件</th><th>原因</th><th>用户 UID</th><th>请求编号</th></tr></thead>
+        <tbody>
+          {% for event in recentFailures %}
+            <tr>
+              <td>{{ event.created_at }}</td>
+              <td>{{ event.event_type }} / {{ event.outcome }}</td>
+              <td><code>{{ event.reason }}</code></td>
+              <td>{{ event.uid ?: '—' }}</td>
+              <td><code>{{ event.request_id }}</code></td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="text-muted">没有异常记录。</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}
