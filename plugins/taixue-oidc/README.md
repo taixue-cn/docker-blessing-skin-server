@@ -13,6 +13,7 @@ Required environment variables:
 - `TAIXUE_OIDC_ALLOWED_SUBJECTS=` (comma-separated stable OIDC subjects)
 - `TAIXUE_OIDC_SHOW_LOGIN_BUTTON=false`
 - `TAIXUE_OIDC_SHOW_ACCOUNT_MENU=false`
+- `TAIXUE_OIDC_REVOCATION_SECRET=` (at least 32 random bytes; shared only with the user-service revocation worker)
 - `SESSION_SECURE_COOKIE=true` (required; the plugin fails closed without a Secure session cookie)
 
 Register the exact callback URL `https://skin.taixue.cc/auth/taixue/callback`. During migration, keep local password login enabled and ask existing users to link from the authenticated account page. Auto-registration must remain disabled until collision and rollback metrics have been reviewed.
@@ -20,6 +21,8 @@ Register the exact callback URL `https://skin.taixue.cc/auth/taixue/callback`. D
 Also register `https://skin.taixue.cc/auth/taixue/backchannel-logout` as the client's `backchannel_logout_uri` with `backchannel_logout_session_required=false`. The endpoint validates signed OIDC Logout Tokens and records a bounded revocation marker. OIDC-created Blessing Skin sessions check that marker at most every 30 seconds, so revocation works with file, database, or Redis session drivers without scanning or deleting raw session storage.
 
 After updating an already-enabled plugin, disable and re-enable it once during the maintenance window so `PluginWasEnabled` creates `taixue_oidc_revocations` before accepting OIDC logins. If the table is unexpectedly missing, only OIDC-created sessions fail closed; local Blessing Skin sessions and the rest of the site remain available.
+
+For password-change and password-recovery revocation, enable the user service's `session-revocation.blessing-skin` target with URL `https://skin.taixue.cc/auth/taixue/coordinated-logout` and the same secret. The durable user-service outbox signs the subject, request ID, and timestamp; retries keep the same idempotency identity. Leave the target disabled until both sides and the shared secret are deployed.
 
 Existing-account login and linking request only `openid profile blessing_skin`. The plugin adds `email` only if automatic registration is explicitly enabled, so the gray migration does not ask users for data it does not use.
 

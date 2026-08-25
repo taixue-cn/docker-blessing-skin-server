@@ -3,15 +3,15 @@
 namespace Taixue\Oidc\Controllers;
 
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Taixue\Oidc\LogoutTokenVerifier;
 use Taixue\Oidc\OidcAudit;
 use Taixue\Oidc\OidcFlowException;
+use Taixue\Oidc\RevocationStore;
 
 class BackchannelLogoutController
 {
-    public function __invoke(LogoutTokenVerifier $verifier, OidcAudit $audit)
+    public function __invoke(LogoutTokenVerifier $verifier, RevocationStore $store, OidcAudit $audit)
     {
         try {
             $contentType = strtolower((string) request()->header('Content-Type', ''));
@@ -41,27 +41,7 @@ class BackchannelLogoutController
             $sid = isset($claims['sid']) ? (string) $claims['sid'] : null;
             $jti = (string) $claims['jti'];
 
-            $now = now();
-            $retentionMinutes = max(60, (int) config('session.lifetime', 120) + 10);
-            DB::transaction(function () use ($jti, $subject, $sid, $now, $retentionMinutes, $audit) {
-                $inserted = DB::table('taixue_oidc_revocations')->insertOrIgnore([
-                    'jti' => $jti,
-                    'subject' => $subject,
-                    'sid' => $sid,
-                    'revoked_at' => $now,
-                    'purge_after' => $now->copy()->addMinutes($retentionMinutes),
-                    'created_at' => $now,
-                ]);
-                if ($inserted) {
-                    $link = $subject
-                        ? DB::table('taixue_oidc_links')->where('subject', $subject)->first()
-                        : null;
-                    $audit->record('BACKCHANNEL_LOGOUT', 'SUCCEEDED', $link ? (int) $link->uid : null, $subject, [
-                        'sid_present' => $sid !== null,
-                    ]);
-                }
-            });
-            DB::table('taixue_oidc_revocations')->where('purge_after', '<=', $now)->delete();
+            $store->record($jti, $subject, $sid, 'BACKCHANNEL_LOGOUT', $audit);
 
             return response('', 204)
                 ->header('Cache-Control', 'no-store')

@@ -55,6 +55,8 @@ return function (Filter $filter, Dispatcher $events) {
         Route::namespace('Taixue\Oidc\Controllers')
             ->post('auth/taixue/backchannel-logout', 'BackchannelLogoutController@__invoke');
         Route::namespace('Taixue\Oidc\Controllers')
+            ->post('auth/taixue/coordinated-logout', 'CoordinatedLogoutController@__invoke');
+        Route::namespace('Taixue\Oidc\Controllers')
             ->middleware('web')
             ->group(__DIR__.'/routes.php');
     });

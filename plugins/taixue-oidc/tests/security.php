@@ -4,6 +4,7 @@ require __DIR__.'/../vendor/autoload.php';
 require_once __DIR__.'/../src/SafeRedirect.php';
 
 use Firebase\JWT\JWT;
+use Taixue\Oidc\CoordinatedRevocationVerifier;
 use Taixue\Oidc\IdTokenVerifier;
 use Taixue\Oidc\LinkConsistency;
 use Taixue\Oidc\LogoutTokenVerifier;
@@ -22,9 +23,12 @@ if (!str_contains($bootstrapSource, "config('session.secure')") ||
     throw new RuntimeException('OIDC must fail closed without Secure session cookies');
 }
 $backchannelControllerSource = file_get_contents(__DIR__.'/../src/Controllers/BackchannelLogoutController.php');
+$coordinatedControllerSource = file_get_contents(__DIR__.'/../src/Controllers/CoordinatedLogoutController.php');
+$revocationStoreSource = file_get_contents(__DIR__.'/../src/RevocationStore.php');
 $sessionGuardSource = file_get_contents(__DIR__.'/../src/OidcSessionGuard.php');
 foreach ([
     "post('auth/taixue/backchannel-logout'",
+    "post('auth/taixue/coordinated-logout'",
     'pushMiddlewareToGroup',
     'OidcSessionGuard::class',
 ] as $logoutIntegration) {
@@ -34,8 +38,13 @@ foreach ([
 }
 if (!str_contains($backchannelControllerSource, "request('logout_token')") ||
     !str_contains($backchannelControllerSource, "->header('Cache-Control', 'no-store')") ||
-    !str_contains($backchannelControllerSource, 'insertOrIgnore')) {
+    !str_contains($revocationStoreSource, 'insertOrIgnore')) {
     throw new RuntimeException('Back-channel logout must be no-store and replay-safe');
+}
+foreach (['X-Request-ID', 'X-Taixue-Timestamp', 'X-Taixue-Signature'] as $signedHeader) {
+    if (!str_contains($coordinatedControllerSource, $signedHeader)) {
+        throw new RuntimeException('Coordinated logout is missing a signed request field');
+    }
 }
 if (!str_contains($sessionGuardSource, 'Auth::logout()') ||
     !str_contains($sessionGuardSource, '$request->session()->invalidate();') ||
@@ -138,6 +147,44 @@ if (OidcClient::scopesFor(false) !== 'openid profile blessing_skin' ||
 if (OidcClient::standardPasswordChangeUrl('https://auth.taixue.cc/') !==
     'https://auth.taixue.cc/.well-known/change-password') {
     throw new RuntimeException('OIDC password change URL must use the configured issuer');
+}
+
+$coordinatedVerifier = new CoordinatedRevocationVerifier();
+$coordinatedSubject = '8675309';
+$coordinatedRequestId = 'session-revocation:123456789';
+$coordinatedTimestamp = 1_800_000_000;
+$coordinatedSecret = '0123456789abcdef0123456789abcdef';
+$coordinatedSignature = 'v1='.hash_hmac(
+    'sha256',
+    CoordinatedRevocationVerifier::payload(
+        $coordinatedSubject,
+        $coordinatedRequestId,
+        $coordinatedTimestamp
+    ),
+    $coordinatedSecret
+);
+$coordinatedVerifier->verify(
+    $coordinatedSubject,
+    $coordinatedRequestId,
+    (string) $coordinatedTimestamp,
+    $coordinatedSignature,
+    $coordinatedSecret,
+    $coordinatedTimestamp + 10
+);
+foreach ([
+    ['other-subject', $coordinatedRequestId, (string) $coordinatedTimestamp, $coordinatedSignature, $coordinatedSecret, $coordinatedTimestamp + 10],
+    [$coordinatedSubject, 'short', (string) $coordinatedTimestamp, $coordinatedSignature, $coordinatedSecret, $coordinatedTimestamp + 10],
+    [$coordinatedSubject, $coordinatedRequestId, (string) $coordinatedTimestamp, $coordinatedSignature, 'too-short', $coordinatedTimestamp + 10],
+    [$coordinatedSubject, $coordinatedRequestId, (string) $coordinatedTimestamp, $coordinatedSignature, $coordinatedSecret, $coordinatedTimestamp + 301],
+] as $invalidCoordinatedRequest) {
+    try {
+        $coordinatedVerifier->verify(...$invalidCoordinatedRequest);
+        throw new RuntimeException('Expected rejection: invalid coordinated logout request');
+    } catch (RuntimeException $e) {
+        if ($e->getMessage() === 'Expected rejection: invalid coordinated logout request') {
+            throw $e;
+        }
+    }
 }
 
 $grant = FreshAuthGrant::payload(12345, 'stable-subject', 1_000);
