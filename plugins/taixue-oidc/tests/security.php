@@ -222,6 +222,22 @@ if (OidcClient::standardPasswordChangeUrl('https://auth.taixue.cc/') !==
     'https://auth.taixue.cc/.well-known/change-password') {
     throw new RuntimeException('OIDC password change URL must use the configured issuer');
 }
+if (OidcClient::standardPasswordRecoveryUrl('https://auth.taixue.cc/') !==
+    'https://auth.taixue.cc/recover') {
+    throw new RuntimeException('OIDC recovery must use the unified account recovery page');
+}
+
+$loginHelpSource = file_get_contents(__DIR__.'/../views/login-help.twig');
+foreach (['data-taixue-recovery', 'data-local-recovery'] as $recoveryPath) {
+    if (!str_contains($loginHelpSource, $recoveryPath)) {
+        throw new RuntimeException('The login page must keep both recovery paths visible');
+    }
+}
+if (!str_contains($bootstrapSource, "'Taixue\\Oidc::login-help'") ||
+    strpos($bootstrapSource, "'Taixue\\Oidc::login-help'") >
+        strpos($bootstrapSource, "if (!config('session.secure'))")) {
+    throw new RuntimeException('Password recovery must survive an OIDC configuration rollback');
+}
 
 $coordinatedVerifier = new CoordinatedRevocationVerifier();
 $coordinatedSubject = '8675309';

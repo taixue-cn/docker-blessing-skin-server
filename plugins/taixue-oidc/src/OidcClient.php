@@ -137,6 +137,11 @@ class OidcClient
         return self::normalizeIssuer($issuer).'/.well-known/change-password';
     }
 
+    public static function standardPasswordRecoveryUrl(string $issuer): string
+    {
+        return self::normalizeIssuer($issuer).'/recover';
+    }
+
     private function verifyIdToken(string $token, string $nonce): array
     {
         $jwks = Cache::remember('taixue_oidc_jwks', 300, function () {

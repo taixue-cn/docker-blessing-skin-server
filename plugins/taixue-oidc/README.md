@@ -40,6 +40,8 @@ For a zero-click migration, the dedicated Taixue `blessing_skin` scope should em
 
 Keep local password login and recovery available throughout the migration. Do not switch `TAIXUE_OIDC_ROLLOUT_MODE` to `all` until all of these gates have passed for the allowlist:
 
+When the plugin is enabled, the skin-site login page shows separate recovery links for the Taixue unified account and the legacy skin-site account. The local recovery link remains available even if OIDC is temporarily disabled by the Secure-cookie safety gate, provided Blessing Skin mail delivery is configured. Deployment smoke tests verify both links so rollback cannot strand existing users.
+
 - Every successful login preserves the same Blessing Skin `uid`; no account is matched by email or nickname.
 - A signed `bs_uid` that disagrees with the stored `sub` mapping is rejected and investigated instead of silently choosing either account.
 - Existing local passwords still work, and Taixue password recovery can issue a fresh code after an older code expires. OIDC login must create only a session-scoped Blessing Skin login, never an implicit remember-me cookie. Standard provider-initiated logout must invalidate an already-issued OIDC Blessing Skin session within 30 seconds. Password reset/change must additionally trigger provider logout or the coordinated subject-revocation outbox before full rollout; deleting only Hydra's remembered login/consent session is not sufficient evidence that an RP logout notification was sent.

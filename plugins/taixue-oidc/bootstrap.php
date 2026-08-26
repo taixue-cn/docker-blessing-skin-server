@@ -22,6 +22,33 @@ return function (Filter $filter, Dispatcher $events) {
             [\Taixue\Oidc\Controllers\ReadinessController::class, '__invoke']
         );
     });
+
+    // Password recovery is the safety net for both migration and rollback.
+    // Keep these links visible even when an enabled OIDC deployment fails the
+    // Secure-cookie gate, so a configuration mistake cannot trap local users.
+    View::composer('Taixue\Oidc::login-help', function ($view) {
+        $taixueRecoveryUrl = null;
+        try {
+            $taixueRecoveryUrl = \Taixue\Oidc\OidcClient::standardPasswordRecoveryUrl(
+                (string) env('TAIXUE_OIDC_ISSUER', 'https://auth.taixue.cc')
+            );
+        } catch (\Throwable $error) {
+            report($error);
+        }
+
+        $view->with([
+            'localRecoveryEnabled' => config('mail.default') !== '',
+            'localRecoveryUrl' => url('auth/forgot'),
+            'taixueRecoveryUrl' => $taixueRecoveryUrl,
+        ]);
+    });
+    $filter->add('auth_page_rows:login', function ($rows) {
+        $length = count($rows);
+        array_splice($rows, max(0, $length - 1), 0, ['Taixue\Oidc::login-help']);
+
+        return $rows;
+    });
+
     if (!config('session.secure')) {
         logger()->critical(
             'Taixue OIDC disabled because SESSION_SECURE_COOKIE is not enabled'
@@ -37,8 +64,9 @@ return function (Filter $filter, Dispatcher $events) {
         });
 
         $filter->add('auth_page_rows:login', function ($rows) {
-            $length = count($rows);
-            array_splice($rows, max(0, $length - 1), 0, ['Taixue\Oidc::login']);
+            $helpIndex = array_search('Taixue\Oidc::login-help', $rows, true);
+            $insertAt = $helpIndex === false ? max(0, count($rows) - 1) : $helpIndex;
+            array_splice($rows, $insertAt, 0, ['Taixue\Oidc::login']);
 
             return $rows;
         });

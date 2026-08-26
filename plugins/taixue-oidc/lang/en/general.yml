@@ -2,3 +2,8 @@ title: Taixue Account
 description: Sign in to Blessing Skin with Taixue OAuth/OIDC
 account-menu: Taixue Account
 admin-menu: Taixue Account Migration
+recovery:
+  title: Can't sign in?
+  hint: Both recovery paths remain available during the unified-login rollout.
+  taixue: Recover Taixue account password
+  local: Recover legacy skin-site password

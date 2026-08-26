@@ -2,3 +2,8 @@ title: 太学统一账号
 description: 使用太学 OAuth/OIDC 安全登录皮肤站
 account-menu: 太学账号
 admin-menu: 太学账号迁移
+recovery:
+  title: 无法登录？
+  hint: 统一登录灰度期间，两套找回方式都会保留。
+  taixue: 找回太学账号密码
+  local: 找回原皮肤站密码
