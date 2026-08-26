@@ -11,7 +11,19 @@
         <div class="alert alert-danger">会话 Cookie 未启用 Secure，插件会保持关闭。</div>
       {% endif %}
       {% if totalLinks == 0 %}
-        <div class="alert alert-warning">尚无真实账号映射。完成至少一个允许名单账号的登录、回退和解绑演练前，不要开放全量入口。</div>
+        <div class="alert alert-warning">
+          <div class="mb-2">尚无真实账号映射。完成至少一个允许名单账号的登录、回退和解绑演练前，不要开放全量入口。</div>
+          {% if allowlistCount > 0 and secureCookie and not autoRegister %}
+            <a class="btn btn-warning" href="{{ url('/user/taixue-account') }}">
+              <i class="fas fa-link"></i>&nbsp;用当前皮肤站账号开始绑定验收
+            </a>
+            <div class="small mt-2">
+              当前皮肤站账号必须与允许名单中的太学账号属于同一个人；系统会校验稳定 UID，冲突时拒绝绑定。
+            </div>
+          {% elseif allowlistCount == 0 %}
+            <div class="small">请先仅加入一个测试账号，再开始真实账号验收。</div>
+          {% endif %}
+        </div>
       {% endif %}
       <div class="row">
         <div class="col-md-3"><strong>账号映射</strong><div class="h3 mt-2">{{ totalLinks }}</div></div>
@@ -52,6 +64,20 @@
       </table>
     </div>
   </div>
+
+  {% if totalLinks > 0 and not readyForExpansion %}
+    <div class="card mb-3">
+      <div class="card-header"><h3 class="card-title">继续完成验收</h3></div>
+      <div class="card-body">
+        <p class="text-muted">
+          绑定入口即使没有出现在普通用户菜单中，也可从这里继续测试备用密码、解绑和重新登录；不要为了补齐证据提前开放全量入口。
+        </p>
+        <a class="btn btn-outline-primary" href="{{ url('/user/taixue-account') }}">
+          打开当前账号的绑定与恢复设置
+        </a>
+      </div>
+    </div>
+  {% endif %}
 
   <div class="card mb-3">
     <div class="card-header"><h3 class="card-title">当前灰度配置</h3></div>

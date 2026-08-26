@@ -172,6 +172,13 @@ foreach ([
         );
     }
 }
+if (!str_contains($adminViewSource, "url('/user/taixue-account')") ||
+    !str_contains($adminViewSource, '用当前皮肤站账号开始绑定验收') ||
+    !str_contains($adminViewSource, 'allowlistCount > 0 and secureCookie and not autoRegister')) {
+    throw new RuntimeException(
+        'The rollout dashboard must provide a guarded path to real-account binding acceptance'
+    );
+}
 if (str_contains($adminControllerSource, '$successfulRevocations > 0')) {
     throw new RuntimeException(
         'An unlinked or single-path logout success must not unlock rollout expansion'
