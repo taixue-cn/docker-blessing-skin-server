@@ -228,10 +228,11 @@ if (OidcClient::standardPasswordRecoveryUrl('https://auth.taixue.cc/') !==
 }
 
 $loginHelpSource = file_get_contents(__DIR__.'/../views/login-help.twig');
-foreach (['data-taixue-recovery', 'data-local-recovery'] as $recoveryPath) {
-    if (!str_contains($loginHelpSource, $recoveryPath)) {
-        throw new RuntimeException('The login page must keep both recovery paths visible');
-    }
+if (!str_contains($loginHelpSource, 'data-taixue-recovery') ||
+    str_contains($loginHelpSource, 'data-local-recovery')) {
+    throw new RuntimeException(
+        'The plugin must add unified recovery without duplicating Blessing Skin recovery'
+    );
 }
 if (!str_contains($bootstrapSource, "'Taixue\\Oidc::login-help'") ||
     strpos($bootstrapSource, "'Taixue\\Oidc::login-help'") >

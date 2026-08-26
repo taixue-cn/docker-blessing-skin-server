@@ -37,9 +37,9 @@ return function (Filter $filter, Dispatcher $events) {
         }
 
         $view->with([
-            'localRecoveryEnabled' => config('mail.default') !== '',
-            'localRecoveryUrl' => url('auth/forgot'),
             'taixueRecoveryUrl' => $taixueRecoveryUrl,
+            'taixueRecoveryLabel' => trans('Taixue\Oidc::general.recovery.taixue'),
+            'recoveryHint' => trans('Taixue\Oidc::general.recovery.hint'),
         ]);
     });
     $filter->add('auth_page_rows:login', function ($rows) {

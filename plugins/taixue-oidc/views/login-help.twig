@@ -1,20 +1,8 @@
-<div class="my-3 rounded border p-3 text-left">
-  <div class="font-weight-bold">
-    {{ trans('Taixue\Oidc::general.recovery.title') }}
-  </div>
-  <div class="mt-2 d-flex flex-column">
-    {% if taixueRecoveryUrl %}
-      <a data-taixue-recovery href="{{ taixueRecoveryUrl }}">
-        {{ trans('Taixue\Oidc::general.recovery.taixue') }}
-      </a>
-    {% endif %}
-    {% if localRecoveryEnabled %}
-      <a data-local-recovery class="mt-1" href="{{ localRecoveryUrl }}">
-        {{ trans('Taixue\Oidc::general.recovery.local') }}
-      </a>
-    {% endif %}
-  </div>
-  <small class="mt-2 d-block text-muted">
-    {{ trans('Taixue\Oidc::general.recovery.hint') }}
-  </small>
+<div class="my-3 border-top pt-3 text-left">
+  {% if taixueRecoveryUrl %}
+    <a data-taixue-recovery href="{{ taixueRecoveryUrl }}">
+      {{ taixueRecoveryLabel }}
+    </a>
+  {% endif %}
+  <small class="mt-1 d-block text-muted">{{ recoveryHint }}</small>
 </div>

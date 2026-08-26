@@ -164,8 +164,8 @@ jobs:
               https://skin.taixue.cc/auth/login)
             printf '%s' "$login_html" | grep -F 'data-taixue-recovery'
             printf '%s' "$login_html" | grep -F 'href="https://auth.taixue.cc/recover"'
-            printf '%s' "$login_html" | grep -F 'data-local-recovery'
-            printf '%s' "$login_html" | grep -F 'href="https://skin.taixue.cc/auth/forgot"'
+            curl --fail --silent --show-error --output /dev/null \
+              https://skin.taixue.cc/auth/forgot
             [ "$(curl --silent --output /dev/null --write-out '%{http_code}' \
               https://skin.taixue.cc/auth/taixue/ready)" = 204 ]
 
