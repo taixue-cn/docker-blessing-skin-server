@@ -23,6 +23,37 @@
   </div>
 
   <div class="card mb-3">
+    <div class="card-header d-flex align-items-center justify-content-between">
+      <h3 class="card-title mb-0">扩量验收</h3>
+      {% if readyForExpansion %}
+        <span class="badge badge-success">可以进入下一阶段</span>
+      {% else %}
+        <span class="badge badge-warning">暂不可扩量</span>
+      {% endif %}
+    </div>
+    <div class="card-body p-0 table-responsive">
+      <table class="table table-sm mb-0">
+        <thead><tr><th style="width: 10rem">检查项</th><th style="width: 6rem">状态</th><th>证据与下一步</th></tr></thead>
+        <tbody>
+          {% for check in readinessChecks %}
+            <tr>
+              <td><strong>{{ check.label }}</strong></td>
+              <td>
+                {% if check.passed %}
+                  <span class="text-success">已通过</span>
+                {% else %}
+                  <span class="text-warning">待完成</span>
+                {% endif %}
+              </td>
+              <td>{{ check.detail }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card mb-3">
     <div class="card-header"><h3 class="card-title">当前灰度配置</h3></div>
     <div class="card-body table-responsive">
       <table class="table table-sm mb-0">

@@ -26,6 +26,10 @@ class AdminController
             ->orderBy('event_type')
             ->orderBy('outcome')
             ->get();
+        $weekEventCounts = [];
+        foreach ($weekEvents as $event) {
+            $weekEventCounts[$event->event_type.':'.$event->outcome] = (int) $event->aggregate;
+        }
         $recentFailures = DB::table('taixue_oidc_audit_events')
             ->where('outcome', '<>', 'SUCCEEDED')
             ->orderByDesc('id')
@@ -51,6 +55,82 @@ class AdminController
             'trim',
             explode(',', (string) env('TAIXUE_OIDC_ALLOWED_SUBJECTS', ''))
         ));
+        $rolloutMode = (string) env('TAIXUE_OIDC_ROLLOUT_MODE', 'allowlist');
+        $loginButtonVisible = filter_var(
+            env('TAIXUE_OIDC_SHOW_LOGIN_BUTTON', false),
+            FILTER_VALIDATE_BOOL
+        );
+        $accountMenuVisible = filter_var(
+            env('TAIXUE_OIDC_SHOW_ACCOUNT_MENU', false),
+            FILTER_VALIDATE_BOOL
+        );
+        $autoRegister = filter_var(
+            env('TAIXUE_OIDC_AUTO_REGISTER', false),
+            FILTER_VALIDATE_BOOL
+        );
+        $secureCookie = (bool) config('session.secure');
+        $successfulLoginOrLink = ($weekEventCounts['LOGIN:SUCCEEDED'] ?? 0)
+            + ($weekEventCounts['LINK:SUCCEEDED'] ?? 0);
+        $successfulRevocations = ($weekEventCounts['BACKCHANNEL_LOGOUT:SUCCEEDED'] ?? 0)
+            + ($weekEventCounts['COORDINATED_LOGOUT:SUCCEEDED'] ?? 0);
+        $rolloutHasAudience = $rolloutMode === 'bound'
+            || $rolloutMode === 'all'
+            || ($rolloutMode === 'allowlist' && count($allowedSubjects) > 0);
+
+        $readinessChecks = [
+            [
+                'label' => '安全会话配置',
+                'passed' => $secureCookie,
+                'detail' => $secureCookie
+                    ? '会话 Cookie 仅通过 HTTPS 发送。'
+                    : '先启用 Secure Cookie，否则插件会保持关闭。',
+            ],
+            [
+                'label' => '灰度对象',
+                'passed' => $rolloutHasAudience,
+                'detail' => $rolloutHasAudience
+                    ? '当前模式存在可验收的灰度对象。'
+                    : '允许名单为空；请先只加入测试账号，不要直接全量开放。',
+            ],
+            [
+                'label' => '真实账号映射',
+                'passed' => $totalLinks > 0,
+                'detail' => $totalLinks > 0
+                    ? "已建立 {$totalLinks} 个稳定 subject 映射。"
+                    : '尚无账号完成登录或绑定，请先走通一个真实测试账号。',
+            ],
+            [
+                'label' => '登录或绑定验收',
+                'passed' => $successfulLoginOrLink > 0,
+                'detail' => $successfulLoginOrLink > 0
+                    ? "最近 7 天成功 {$successfulLoginOrLink} 次。"
+                    : '最近 7 天没有成功登录或绑定记录。',
+            ],
+            [
+                'label' => '本地回退凭据',
+                'passed' => $totalLinks > 0 && $provisionedLinks === 0,
+                'detail' => $totalLinks > 0 && $provisionedLinks === 0
+                    ? '所有已映射账号都保留了可用的皮肤站本地密码。'
+                    : ($totalLinks === 0
+                        ? '需先建立账号映射后再验证找回、改密和解绑。'
+                        : "仍有 {$provisionedLinks} 个账号需要建立本地备用密码。"),
+            ],
+            [
+                'label' => '会话撤销验收',
+                'passed' => $successfulRevocations > 0,
+                'detail' => $successfulRevocations > 0
+                    ? "最近 7 天成功撤销 {$successfulRevocations} 次依赖方会话。"
+                    : '尚无成功撤销记录；必须验证退出和改密后旧会话失效。',
+            ],
+            [
+                'label' => '自动注册保护',
+                'passed' => !$autoRegister,
+                'detail' => !$autoRegister
+                    ? '自动注册保持关闭，当前迁移不会意外创建重复账号。'
+                    : '扩量验收前应关闭自动注册，先核对冲突与回滚指标。',
+            ],
+        ];
+        $readyForExpansion = !in_array(false, array_column($readinessChecks, 'passed'), true);
 
         return view('Taixue\Oidc::admin', [
             'totalLinks' => $totalLinks,
@@ -61,21 +141,14 @@ class AdminController
             'dayFailed' => (int) ($dayEvents['FAILED'] ?? 0),
             'weekEvents' => $weekEvents,
             'recentFailures' => $recentFailures,
-            'rolloutMode' => (string) env('TAIXUE_OIDC_ROLLOUT_MODE', 'allowlist'),
+            'rolloutMode' => $rolloutMode,
             'allowlistCount' => count($allowedSubjects),
-            'loginButtonVisible' => filter_var(
-                env('TAIXUE_OIDC_SHOW_LOGIN_BUTTON', false),
-                FILTER_VALIDATE_BOOL
-            ),
-            'accountMenuVisible' => filter_var(
-                env('TAIXUE_OIDC_SHOW_ACCOUNT_MENU', false),
-                FILTER_VALIDATE_BOOL
-            ),
-            'autoRegister' => filter_var(
-                env('TAIXUE_OIDC_AUTO_REGISTER', false),
-                FILTER_VALIDATE_BOOL
-            ),
-            'secureCookie' => (bool) config('session.secure'),
+            'loginButtonVisible' => $loginButtonVisible,
+            'accountMenuVisible' => $accountMenuVisible,
+            'autoRegister' => $autoRegister,
+            'secureCookie' => $secureCookie,
+            'readinessChecks' => $readinessChecks,
+            'readyForExpansion' => $readyForExpansion,
         ]);
     }
 }

@@ -18,6 +18,8 @@ use Taixue\Oidc\SafeRedirect;
 $oidcClientSource = file_get_contents(__DIR__.'/../src/OidcClient.php');
 $authControllerSource = file_get_contents(__DIR__.'/../src/Controllers/AuthController.php');
 $bootstrapSource = file_get_contents(__DIR__.'/../bootstrap.php');
+$adminControllerSource = file_get_contents(__DIR__.'/../src/Controllers/AdminController.php');
+$adminViewSource = file_get_contents(__DIR__.'/../views/admin.twig');
 if (!str_contains($bootstrapSource, "config('session.secure')") ||
     !str_contains($bootstrapSource, 'SESSION_SECURE_COOKIE')) {
     throw new RuntimeException('OIDC must fail closed without Secure session cookies');
@@ -124,6 +126,22 @@ if (!str_contains($bootstrapSource, "listen('auth.reset.after'") ||
 }
 if (str_contains($bootstrapSource, "function (\$user, \$password)")) {
     throw new RuntimeException('Password recovery listener must not bind the plaintext password');
+}
+
+foreach ([
+    "'LOGIN:SUCCEEDED'",
+    "'LINK:SUCCEEDED'",
+    "'BACKCHANNEL_LOGOUT:SUCCEEDED'",
+    "'COORDINATED_LOGOUT:SUCCEEDED'",
+    "'readyForExpansion'",
+] as $requiredReadinessSignal) {
+    if (!str_contains($adminControllerSource, $requiredReadinessSignal)) {
+        throw new RuntimeException('OIDC admin readiness gate is missing '.$requiredReadinessSignal);
+    }
+}
+if (!str_contains($adminViewSource, '扩量验收') ||
+    !str_contains($adminViewSource, '证据与下一步')) {
+    throw new RuntimeException('OIDC admin page must explain rollout blockers and next actions');
 }
 
 $routesSource = file_get_contents(__DIR__.'/../routes.php');
