@@ -3,6 +3,7 @@
 namespace Taixue\Oidc\Controllers;
 
 use Taixue\Oidc\CoordinatedRevocationVerifier;
+use Taixue\Oidc\EndpointFailure;
 use Taixue\Oidc\OidcAudit;
 use Taixue\Oidc\OidcFlowException;
 use Taixue\Oidc\RevocationStore;
@@ -49,14 +50,15 @@ class CoordinatedLogoutController
                 report($e);
             }
             $reason = $e instanceof OidcFlowException ? $e->reason() : 'internal_error';
+            $outcome = EndpointFailure::outcome($e);
             try {
-                $audit->record('COORDINATED_LOGOUT', 'FAILED', null, null, ['reason' => $reason]);
+                $audit->record('COORDINATED_LOGOUT', $outcome, null, null, ['reason' => $reason]);
             } catch (\Throwable $auditError) {
                 report($auditError);
             }
             $audit->warn('COORDINATED_LOGOUT', $reason);
 
-            return response('', 400)
+            return response('', EndpointFailure::status($e))
                 ->header('Cache-Control', 'no-store')
                 ->header('Pragma', 'no-cache');
         }

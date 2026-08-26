@@ -5,6 +5,7 @@ require_once __DIR__.'/../src/SafeRedirect.php';
 
 use Firebase\JWT\JWT;
 use Taixue\Oidc\CoordinatedRevocationVerifier;
+use Taixue\Oidc\EndpointFailure;
 use Taixue\Oidc\IdTokenVerifier;
 use Taixue\Oidc\LinkConsistency;
 use Taixue\Oidc\LogoutTokenVerifier;
@@ -35,10 +36,29 @@ foreach ([
     'CoordinatedLogoutController::class',
     'pushMiddlewareToGroup',
     'OidcSessionGuard::class',
+    'ReadinessController::class',
 ] as $logoutIntegration) {
     if (!str_contains($bootstrapSource, $logoutIntegration)) {
         throw new RuntimeException('OIDC back-channel logout integration is incomplete');
     }
+}
+if (!str_contains($bootstrapSource, "'auth/taixue/ready'") ||
+    !str_contains(file_get_contents(__DIR__.'/../src/Controllers/ReadinessController.php'),
+        "'taixue_oidc_revocations'")) {
+    throw new RuntimeException('OIDC readiness probe must verify the migration schema without mutating audit data');
+}
+if (EndpointFailure::outcome(new OidcFlowException('logout_token_missing', 'invalid')) !== 'REJECTED' ||
+    EndpointFailure::status(new OidcFlowException('logout_token_missing', 'invalid')) !== 400 ||
+    EndpointFailure::outcome(new OidcFlowException('flow_expired', 'expired')) !== 'REJECTED' ||
+    EndpointFailure::outcome(new OidcFlowException('jwks_unavailable', 'down')) !== 'FAILED' ||
+    EndpointFailure::status(new OidcFlowException('token_exchange_failed', 'down')) !== 503 ||
+    EndpointFailure::status(new RuntimeException('database unavailable')) !== 503) {
+    throw new RuntimeException('OIDC endpoint failures must distinguish rejected input from service outages');
+}
+$workflowSource = file_get_contents(__DIR__.'/../../../.github/workflows/taixue-oidc.yaml');
+if (str_contains($workflowSource, 'logout_token=invalid') ||
+    str_contains($workflowSource, "--data '{}'")) {
+    throw new RuntimeException('Production deployment probes must not manufacture security failures');
 }
 if (!str_contains($backchannelControllerSource, "request('logout_token')") ||
     !str_contains($backchannelControllerSource, "->header('Cache-Control', 'no-store')") ||
@@ -74,6 +94,10 @@ if ($flowRead === false || $stateCheck === false || $flowConsume === false ||
 }
 if (!str_contains($authControllerSource, 'request()->session()->regenerate();')) {
     throw new RuntimeException('OIDC login must rotate the local session identifier');
+}
+if (!str_contains($authControllerSource, 'EndpointFailure::outcome($e)') ||
+    !str_contains($authControllerSource, 'EndpointFailure::status($e)')) {
+    throw new RuntimeException('OIDC callbacks must distinguish user rejection from retryable service failure');
 }
 if (!str_contains($authControllerSource, 'Auth::login($user, false);') ||
     str_contains($authControllerSource, 'Auth::login($user, true);')) {

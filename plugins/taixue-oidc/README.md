@@ -32,6 +32,8 @@ After the one-account allowlist passes, use `TAIXUE_OIDC_ROLLOUT_MODE=bound` to 
 
 Skin-site administrators can review `/admin/taixue-oidc` before expanding the rollout. It shows aggregate mappings, fallback-password readiness, recent outcomes and bounded failure reasons without exposing client secrets, tokens or allowlist subjects.
 
+Deployment automation should probe `GET /auth/taixue/ready` after the plugin is enabled. It returns `204` only when the required secrets, Secure session cookies and all migration tables are available, otherwise `503`. Do not probe logout endpoints with fabricated tokens: rejected logout traffic is deliberately retained as a security audit event and would corrupt operational failure metrics.
+
 For a zero-click migration, the dedicated Taixue `blessing_skin` scope should emit an integer `bs_uid` claim from the accepted `BS` identity binding. The internal UID is deliberately excluded from the general `profile` scope. Because the claim is inside the signed ID Token, the plugin may use it to create the local `sub` mapping. A conflicting `bs_uid`, local UID, or `sub` is rejected; email and nickname remain display-only attributes.
 
 ## Migration acceptance gates

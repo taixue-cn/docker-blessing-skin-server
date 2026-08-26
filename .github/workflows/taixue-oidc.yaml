@@ -161,11 +161,7 @@ jobs:
               sleep 2
             done
             [ "$(curl --silent --output /dev/null --write-out '%{http_code}' \
-              --request POST --data 'logout_token=invalid' \
-              https://skin.taixue.cc/auth/taixue/backchannel-logout)" = 400 ]
-            [ "$(curl --silent --output /dev/null --write-out '%{http_code}' \
-              --request POST --header 'Content-Type: application/json' --data '{}' \
-              https://skin.taixue.cc/auth/taixue/coordinated-logout)" = 400 ]
+              https://skin.taixue.cc/auth/taixue/ready)" = 204 ]
 
             expected_bootstrap=$(sha256sum "$HOST_STAGE/bootstrap.php" | cut -d ' ' -f 1)
             deployed_bootstrap=$(docker exec "$CONTAINER" sha256sum "$LIVE/bootstrap.php" | cut -d ' ' -f 1)

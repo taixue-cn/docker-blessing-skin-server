@@ -9,6 +9,7 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Taixue\Oidc\EndpointFailure;
 use Taixue\Oidc\LinkConsistency;
 use Taixue\Oidc\FreshAuthGrant;
 use Taixue\Oidc\OidcClient;
@@ -125,7 +126,13 @@ class AuthController
                 ? $e->reason()
                 : 'internal_error';
             try {
-                $audit->record('CALLBACK', 'FAILED', $uid, $subject, ['reason' => $reason]);
+                $audit->record(
+                    'CALLBACK',
+                    EndpointFailure::outcome($e),
+                    $uid,
+                    $subject,
+                    ['reason' => $reason]
+                );
             } catch (\Throwable $auditError) {
                 report($auditError);
             }
@@ -135,7 +142,7 @@ class AuthController
                 ? $e->getMessage()
                 : '太学账号登录暂时不可用，请稍后重试。';
 
-            return $this->error($message, $audit->requestId());
+            return $this->error($message, $audit->requestId(), EndpointFailure::status($e));
         }
     }
 
@@ -329,12 +336,12 @@ class AuthController
         return redirect('/user/taixue-account/local-password');
     }
 
-    private function error(string $message, string $requestId)
+    private function error(string $message, string $requestId, int $status = 400)
     {
         return response()->view('Taixue\Oidc::error', [
             'message' => $message,
             'request_id' => $requestId,
-        ], 400)->header('X-Request-ID', $requestId);
+        ], $status)->header('X-Request-ID', $requestId);
     }
 
     private function safeRedirectTarget($candidate): string

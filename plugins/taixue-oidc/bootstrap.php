@@ -12,6 +12,16 @@ return function (Filter $filter, Dispatcher $events) {
     if (!filter_var(env('TAIXUE_OIDC_ENABLED', false), FILTER_VALIDATE_BOOL)) {
         return;
     }
+    // Keep the side-effect-free readiness endpoint available when an enabled
+    // deployment is misconfigured, so automation observes 503 instead of a
+    // misleading 404. No login or account route is registered until the
+    // Secure-cookie gate below passes.
+    Hook::addRoute(function () {
+        Route::get(
+            'auth/taixue/ready',
+            [\Taixue\Oidc\Controllers\ReadinessController::class, '__invoke']
+        );
+    });
     if (!config('session.secure')) {
         logger()->critical(
             'Taixue OIDC disabled because SESSION_SECURE_COOKIE is not enabled'
