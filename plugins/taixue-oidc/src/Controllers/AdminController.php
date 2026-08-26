@@ -71,8 +71,21 @@ class AdminController
         $secureCookie = (bool) config('session.secure');
         $successfulLoginOrLink = ($weekEventCounts['LOGIN:SUCCEEDED'] ?? 0)
             + ($weekEventCounts['LINK:SUCCEEDED'] ?? 0);
-        $successfulRevocations = ($weekEventCounts['BACKCHANNEL_LOGOUT:SUCCEEDED'] ?? 0)
-            + ($weekEventCounts['COORDINATED_LOGOUT:SUCCEEDED'] ?? 0);
+        // A correctly signed logout for an unknown subject is intentionally
+        // accepted and stored, but it proves only endpoint interoperability.
+        // Expansion requires evidence that a real linked Blessing Skin account
+        // was reached. Keep provider logout and password-change coordination as
+        // separate gates so one healthy path cannot conceal the other.
+        $linkedRevocations = DB::table('taixue_oidc_audit_events')
+            ->where('created_at', '>=', $weekStart)
+            ->where('outcome', 'SUCCEEDED')
+            ->whereNotNull('uid')
+            ->whereIn('event_type', ['BACKCHANNEL_LOGOUT', 'COORDINATED_LOGOUT'])
+            ->selectRaw('event_type, COUNT(*) AS aggregate')
+            ->groupBy('event_type')
+            ->pluck('aggregate', 'event_type');
+        $successfulBackchannelLogouts = (int) ($linkedRevocations['BACKCHANNEL_LOGOUT'] ?? 0);
+        $successfulCoordinatedLogouts = (int) ($linkedRevocations['COORDINATED_LOGOUT'] ?? 0);
         $rolloutHasAudience = $rolloutMode === 'bound'
             || $rolloutMode === 'all'
             || ($rolloutMode === 'allowlist' && count($allowedSubjects) > 0);
@@ -116,11 +129,18 @@ class AdminController
                         : "仍有 {$provisionedLinks} 个账号需要建立本地备用密码。"),
             ],
             [
-                'label' => '会话撤销验收',
-                'passed' => $successfulRevocations > 0,
-                'detail' => $successfulRevocations > 0
-                    ? "最近 7 天成功撤销 {$successfulRevocations} 次依赖方会话。"
-                    : '尚无成功撤销记录；必须验证退出和改密后旧会话失效。',
+                'label' => '单点退出验收',
+                'passed' => $successfulBackchannelLogouts > 0,
+                'detail' => $successfulBackchannelLogouts > 0
+                    ? "最近 7 天有 {$successfulBackchannelLogouts} 次已映射账号完成标准 back-channel logout。"
+                    : '尚无已映射账号完成标准 back-channel logout；必须验证退出后皮肤站旧会话失效。',
+            ],
+            [
+                'label' => '改密退出验收',
+                'passed' => $successfulCoordinatedLogouts > 0,
+                'detail' => $successfulCoordinatedLogouts > 0
+                    ? "最近 7 天有 {$successfulCoordinatedLogouts} 次已映射账号完成改密协调退出。"
+                    : '尚无已映射账号完成改密协调退出；必须验证修改、找回或重置密码后皮肤站旧会话失效。',
             ],
             [
                 'label' => '自动注册保护',

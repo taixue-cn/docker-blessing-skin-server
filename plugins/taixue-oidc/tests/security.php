@@ -155,13 +155,27 @@ if (str_contains($bootstrapSource, "function (\$user, \$password)")) {
 foreach ([
     "'LOGIN:SUCCEEDED'",
     "'LINK:SUCCEEDED'",
-    "'BACKCHANNEL_LOGOUT:SUCCEEDED'",
-    "'COORDINATED_LOGOUT:SUCCEEDED'",
     "'readyForExpansion'",
 ] as $requiredReadinessSignal) {
     if (!str_contains($adminControllerSource, $requiredReadinessSignal)) {
         throw new RuntimeException('OIDC admin readiness gate is missing '.$requiredReadinessSignal);
     }
+}
+foreach ([
+    "->whereNotNull('uid')",
+    "\$successfulBackchannelLogouts > 0",
+    "\$successfulCoordinatedLogouts > 0",
+] as $linkedRevocationGate) {
+    if (!str_contains($adminControllerSource, $linkedRevocationGate)) {
+        throw new RuntimeException(
+            'Rollout readiness must independently verify linked-account logout paths'
+        );
+    }
+}
+if (str_contains($adminControllerSource, '$successfulRevocations > 0')) {
+    throw new RuntimeException(
+        'An unlinked or single-path logout success must not unlock rollout expansion'
+    );
 }
 if (!str_contains($adminViewSource, '扩量验收') ||
     !str_contains($adminViewSource, '证据与下一步')) {
