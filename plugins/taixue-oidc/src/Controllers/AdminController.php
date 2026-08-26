@@ -3,6 +3,7 @@
 namespace Taixue\Oidc\Controllers;
 
 use Illuminate\Support\Facades\DB;
+use Taixue\Oidc\AuditImpact;
 
 class AdminController
 {
@@ -45,6 +46,10 @@ class AdminController
                     'event_type' => $event->event_type,
                     'outcome' => $event->outcome,
                     'uid' => $event->uid,
+                    'impact' => AuditImpact::label(
+                        $event->uid === null ? null : (int) $event->uid,
+                        $event->subject === null ? null : (string) $event->subject
+                    ),
                     'request_id' => $event->request_id,
                     'reason' => $reason,
                     'created_at' => $event->created_at,

@@ -5,6 +5,7 @@ require_once __DIR__.'/../src/SafeRedirect.php';
 
 use Firebase\JWT\JWT;
 use Taixue\Oidc\CoordinatedRevocationVerifier;
+use Taixue\Oidc\AuditImpact;
 use Taixue\Oidc\EndpointFailure;
 use Taixue\Oidc\IdTokenVerifier;
 use Taixue\Oidc\LinkConsistency;
@@ -187,6 +188,14 @@ if (str_contains($adminControllerSource, '$successfulRevocations > 0')) {
 if (!str_contains($adminViewSource, '扩量验收') ||
     !str_contains($adminViewSource, '证据与下一步')) {
     throw new RuntimeException('OIDC admin page must explain rollout blockers and next actions');
+}
+if (AuditImpact::label(12345, 'stable-subject') !== '已关联账号' ||
+    AuditImpact::label(null, 'stable-subject') !== '已验证太学账号，尚未映射' ||
+    AuditImpact::label(null, null) !== '未验证账号（端点流量）' ||
+    !str_contains($adminViewSource, '优先处理带已关联 UID 的异常')) {
+    throw new RuntimeException(
+        'OIDC operations must distinguish linked-user failures from unverified endpoint traffic'
+    );
 }
 
 $routesSource = file_get_contents(__DIR__.'/../routes.php');

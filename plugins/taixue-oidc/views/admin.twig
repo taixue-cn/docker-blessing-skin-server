@@ -123,20 +123,26 @@
 
   <div class="card">
     <div class="card-header"><h3 class="card-title">最近拒绝与系统异常</h3></div>
-    <div class="card-body table-responsive">
+    <div class="card-body pb-0">
+      <p class="text-muted mb-3">
+        “未验证账号”表示请求尚未通过太学身份校验，常见于过期回调或无效端点请求；它仍需审计，但不等同于已有用户会话失效。优先处理带已关联 UID 的异常。
+      </p>
+    </div>
+    <div class="card-body pt-0 table-responsive">
       <table class="table table-sm">
-        <thead><tr><th>时间</th><th>事件</th><th>原因</th><th>用户 UID</th><th>请求编号</th></tr></thead>
+        <thead><tr><th>时间</th><th>事件</th><th>影响范围</th><th>原因</th><th>用户 UID</th><th>请求编号</th></tr></thead>
         <tbody>
           {% for event in recentFailures %}
             <tr>
               <td>{{ event.created_at }}</td>
               <td>{{ event.event_type }} / {{ event.outcome }}</td>
+              <td>{{ event.impact }}</td>
               <td><code>{{ event.reason }}</code></td>
               <td>{{ event.uid ?: '—' }}</td>
               <td><code>{{ event.request_id }}</code></td>
             </tr>
           {% else %}
-            <tr><td colspan="5" class="text-muted">没有异常记录。</td></tr>
+            <tr><td colspan="6" class="text-muted">没有异常记录。</td></tr>
           {% endfor %}
         </tbody>
       </table>
