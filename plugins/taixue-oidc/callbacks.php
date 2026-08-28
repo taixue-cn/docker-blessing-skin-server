@@ -39,9 +39,53 @@ return [
                 $table->string('jti', 191)->unique();
                 $table->string('subject', 191)->nullable()->index();
                 $table->string('sid', 191)->nullable()->index();
+                $table->string('event_type', 64)->default('UNKNOWN')->index();
                 $table->timestamp('revoked_at')->index();
                 $table->timestamp('purge_after')->index();
                 $table->timestamp('created_at')->useCurrent();
+            });
+        } elseif (!Schema::hasColumn('taixue_oidc_revocations', 'event_type')) {
+            Schema::table('taixue_oidc_revocations', function (Blueprint $table) {
+                $table->string('event_type', 64)->default('UNKNOWN')->index()->after('sid');
+            });
+        }
+        if (!Schema::hasTable('taixue_oidc_provision_requests')) {
+            Schema::create('taixue_oidc_provision_requests', function (Blueprint $table) {
+                $table->string('request_id', 64)->primary();
+                $table->string('payload_hash', 64);
+                $table->string('subject', 191)->index();
+                $table->unsignedInteger('uid')->nullable()->index();
+                $table->timestamps();
+            });
+        }
+        if (!Schema::hasTable('taixue_oidc_password_sync_requests')) {
+            Schema::create('taixue_oidc_password_sync_requests', function (Blueprint $table) {
+                $table->string('request_id', 64)->primary();
+                $table->string('payload_hash', 64);
+                $table->string('subject', 191)->index();
+                $table->unsignedInteger('uid')->index();
+                $table->timestamps();
+            });
+        }
+        if (!Schema::hasTable('taixue_oidc_password_versions')) {
+            Schema::create('taixue_oidc_password_versions', function (Blueprint $table) {
+                $table->string('subject', 191)->primary();
+                $table->unsignedInteger('uid')->index();
+                $table->unsignedBigInteger('event_id');
+                $table->string('payload_hash', 64);
+                $table->timestamps();
+            });
+        }
+        if (!Schema::hasTable('taixue_oidc_cardinality_repairs')) {
+            Schema::create('taixue_oidc_cardinality_repairs', function (Blueprint $table) {
+                $table->string('request_id', 64)->primary();
+                $table->string('payload_hash', 64);
+                $table->unsignedInteger('uid')->index();
+                $table->string('action', 32);
+                $table->longText('before_json');
+                $table->longText('after_json');
+                $table->unsignedBigInteger('created_at_ms');
+                $table->timestamps();
             });
         }
     },

@@ -3,10 +3,10 @@
 use App\Services\Hook;
 use Blessing\Filter;
 use Illuminate\Contracts\Events\Dispatcher;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\View;
 use Taixue\Oidc\RolloutPolicy;
 use Taixue\Oidc\OidcSessionGuard;
+use Taixue\Oidc\UnifiedIdentityBoundary;
 
 return function (Filter $filter, Dispatcher $events) {
     if (!filter_var(env('TAIXUE_OIDC_ENABLED', false), FILTER_VALIDATE_BOOL)) {
@@ -42,6 +42,14 @@ return function (Filter $filter, Dispatcher $events) {
             'recoveryHint' => trans('Taixue\Oidc::general.recovery.hint'),
         ]);
     });
+    View::composer('Taixue\Oidc::identity-managed', function ($view) {
+        $issuer = rtrim((string) env('TAIXUE_OIDC_ISSUER', 'https://auth.taixue.cc'), '/');
+        // The standard recovery helper validates the configured HTTPS issuer.
+        $view->with([
+            'accountSettingsUrl' => $issuer.'/settings',
+            'passwordRecoveryUrl' => \Taixue\Oidc\OidcClient::standardPasswordRecoveryUrl($issuer),
+        ]);
+    });
     $filter->add('auth_page_rows:login', function ($rows) {
         $length = count($rows);
         array_splice($rows, max(0, $length - 1), 0, ['Taixue\Oidc::login-help']);
@@ -72,20 +80,6 @@ return function (Filter $filter, Dispatcher $events) {
         });
     }
 
-    if (filter_var(env('TAIXUE_OIDC_SHOW_ACCOUNT_MENU', false), FILTER_VALIDATE_BOOL)) {
-        Hook::addMenuItem('user', 0, [
-            'title' => 'Taixue\Oidc::general.account-menu',
-            'link' => '/user/taixue-account',
-            'icon' => 'fa-link',
-        ]);
-    }
-
-    Hook::addMenuItem('admin', 5, [
-        'title' => 'Taixue\Oidc::general.admin-menu',
-        'link' => '/admin/taixue-oidc',
-        'icon' => 'fa-shield-alt',
-    ]);
-
     Hook::addRoute(function () {
         // The OP calls this server-to-server endpoint. It deliberately stays
         // outside the browser `web` group and therefore outside CSRF/session
@@ -98,6 +92,20 @@ return function (Filter $filter, Dispatcher $events) {
             'auth/taixue/coordinated-logout',
             [\Taixue\Oidc\Controllers\CoordinatedLogoutController::class, '__invoke']
         );
+        // Dedicated HMAC authentication and a replay ledger protect this
+        // server-to-server domain provisioning endpoint.
+        Route::post(
+            'auth/taixue/provision-account',
+            [\Taixue\Oidc\Controllers\ProvisionAccountController::class, '__invoke']
+        );
+        Route::post(
+            'auth/taixue/sync-password',
+            [\Taixue\Oidc\Controllers\PasswordSyncController::class, '__invoke']
+        );
+        Route::post(
+            'auth/taixue/repair-cardinality',
+            [\Taixue\Oidc\Controllers\CardinalityRepairController::class, '__invoke']
+        );
         Route::namespace('Taixue\Oidc\Controllers')
             ->middleware('web')
             ->group(__DIR__.'/routes.php');
@@ -106,12 +114,71 @@ return function (Filter $filter, Dispatcher $events) {
     // Session-driver independent revocation: only OIDC-created sessions carry
     // provenance, and at most one indexed revocation lookup is made per 30s.
     app('router')->pushMiddlewareToGroup('web', OidcSessionGuard::class);
+    app('router')->pushMiddlewareToGroup('web', UnifiedIdentityBoundary::class);
+    // Blessing Skin's OAuth API repeats native role-based identity mutation
+    // endpoints. Apply the same boundary there: repairs must go through the
+    // unified CheckUserPermission-backed administration flow.
+    app('router')->pushMiddlewareToGroup('api', UnifiedIdentityBoundary::class);
 
-    $markLocalPasswordAvailable = static function ($user): void {
-        DB::table('taixue_oidc_links')
-            ->where('uid', $user->uid)
-            ->update(['provisioned' => false, 'updated_at' => now()]);
+    $removeGridWidgets = static function (array $grid, array $retiredWidgets): array {
+        foreach ($grid['widgets'] ?? [] as $rowIndex => $columns) {
+            foreach ($columns as $columnIndex => $widgets) {
+                $grid['widgets'][$rowIndex][$columnIndex] = array_values(array_filter(
+                    $widgets,
+                    fn ($widget) => !in_array($widget, $retiredWidgets, true)
+                ));
+            }
+        }
+
+        return $grid;
     };
+    foreach (['grid:user.index', 'grid:user.closet'] as $emailVerificationGrid) {
+        $filter->add($emailVerificationGrid, function ($grid) use ($removeGridWidgets) {
+            if (!UnifiedIdentityBoundary::protectsCurrentUserIdentity()) {
+                return $grid;
+            }
+
+            return $removeGridWidgets($grid, ['user.widgets.email-verification']);
+        });
+    }
+    $filter->add('grid:user.profile', function ($grid) use ($removeGridWidgets) {
+        if (!UnifiedIdentityBoundary::protectsCurrentUserIdentity()) {
+            return $grid;
+        }
+        $grid = $removeGridWidgets($grid, [
+            'user.widgets.profile.password',
+            'user.widgets.profile.email',
+            'user.widgets.profile.delete-account',
+        ]);
+        if (!isset($grid['widgets'][0][0]) || !is_array($grid['widgets'][0][0])) {
+            $grid['widgets'][0][0] = [];
+        }
+        $grid['widgets'][0][0][] = 'Taixue\Oidc::identity-managed';
+
+        return $grid;
+    });
+    $filter->add('extra:user.player', function ($extra) {
+        if (!UnifiedIdentityBoundary::protectsCurrentUserIdentity()) {
+            return $extra;
+        }
+        $issuer = rtrim((string) env('TAIXUE_OIDC_ISSUER', 'https://auth.taixue.cc'), '/');
+        $extra['identityManaged'] = true;
+        $extra['identityManagedTitle'] = trans('Taixue\Oidc::general.player.managed-title');
+        $extra['identityManagedDescription'] = trans('Taixue\Oidc::general.player.managed-description');
+        $extra['identitySettingsUrl'] = $issuer.'/settings';
+        $extra['identitySettingsLabel'] = trans('Taixue\Oidc::general.player.settings-label');
+
+        return $extra;
+    });
+    // The ordinary form remains usable throughout gray rollout. After the
+    // explicit unified-only gate is enabled, reject direct POSTs as well as
+    // redirecting GETs so the hidden legacy endpoint cannot become a second
+    // authoritative web authentication source.
+    $filter->add('can_login', [UnifiedIdentityBoundary::class, 'rejectLocalLogin']);
+    $filter->add('user_can_edit_profile', [UnifiedIdentityBoundary::class, 'rejectIdentityMutation']);
+    foreach (['can_add_player', 'can_delete_player', 'can_rename_player'] as $playerMutation) {
+        $filter->add($playerMutation, [UnifiedIdentityBoundary::class, 'rejectPlayerMutation']);
+    }
 
     // Any login path starts without stale OIDC provenance. The OIDC callback
     // adds fresh provenance only after the local login succeeds.
@@ -119,15 +186,4 @@ return function (Filter $filter, Dispatcher $events) {
         session()->forget(\Taixue\Oidc\OidcSession::KEY);
     });
 
-    $events->listen('user.profile.updated', function ($user, $action) use ($markLocalPasswordAvailable) {
-        if ($action === 'password') {
-            $markLocalPasswordAvailable($user);
-        }
-    });
-    $events->listen('user.password.updated', $markLocalPasswordAvailable);
-    // Blessing Skin's built-in forgot-password flow does not dispatch either
-    // user password event above. It dispatches auth.reset.after only after the
-    // new local password has been persisted. Accept only the user argument so
-    // the plaintext password carried as the second event argument is ignored.
-    $events->listen('auth.reset.after', $markLocalPasswordAvailable);
 };

@@ -5,3 +5,7 @@ admin-menu: 太学账号迁移
 recovery:
   taixue: 找回太学统一账号密码
   hint: 如果你使用的是原皮肤站密码，请使用上方的“忘记密码？”。
+player:
+  managed-title: 玩家身份由太学统一账号管理
+  managed-description: 你仍可更换或清除皮肤与披风；玩家名和绑定关系只能由有权限的管理员在统一账号中修复。
+  settings-label: 打开统一账号

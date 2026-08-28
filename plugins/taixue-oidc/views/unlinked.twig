@@ -1,13 +1,14 @@
 {% extends 'auth.base' %}
 
-{% block title %}需要绑定账号{% endblock %}
+{% block title %}账号关联待处理{% endblock %}
 
 {% block content %}
   <div class="alert alert-info">
-    这个太学账号尚未绑定皮肤站账号。请先使用原来的皮肤站账号登录，再到“太学账号”页面完成绑定。
+    这个太学账号尚未安全关联到皮肤站账号。为避免误合并，普通用户不能自行绑定或解绑；请把下面的请求编号交给有权限的管理员，在太学统一账号系统中核对处理。
   </div>
   {% if request_id %}
     <p class="text-muted">请求编号：<code>{{ request_id }}</code></p>
   {% endif %}
-  <a class="btn btn-primary btn-block" href="{{ url('/auth/login') }}">返回皮肤站登录</a>
+  <a class="btn btn-primary btn-block" href="{{ account_settings_url }}">打开太学账号设置</a>
+  <a class="btn btn-default btn-block" href="{{ url('/auth/login') }}">重新登录</a>
 {% endblock %}
