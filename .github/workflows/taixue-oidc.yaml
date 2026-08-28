@@ -160,12 +160,60 @@ jobs:
               [ "$attempts" -lt 20 ] || { echo 'Login smoke test timed out' >&2; exit 1; }
               sleep 2
             done
-            login_html=$(curl --fail --silent --show-error \
-              https://skin.taixue.cc/auth/login)
-            printf '%s' "$login_html" | grep -F 'data-taixue-recovery'
-            printf '%s' "$login_html" | grep -F 'href="https://auth.taixue.cc/recover"'
-            curl --fail --silent --show-error --output /dev/null \
-              https://skin.taixue.cc/auth/forgot
+            smoke_headers="$HOST_STAGE/login-headers"
+            smoke_body="$HOST_STAGE/login-body"
+            response_location() {
+              awk 'tolower($1) == "location:" {
+                $1=""; sub(/^ /, ""); sub(/\r$/, ""); print
+              }' "$1" | tail -n 1
+            }
+            assert_unified_login_redirect() {
+              location=$(response_location "$1")
+              case "$location" in
+                /auth/taixue|https://skin.taixue.cc/auth/taixue) ;;
+                *) echo "Unexpected unified-login redirect: $location" >&2; exit 1 ;;
+              esac
+            }
+            assert_recovery_redirect() {
+              location=$(response_location "$1")
+              case "$location" in
+                https://auth.taixue.cc/recover*) ;;
+                *) echo "Unexpected recovery redirect: $location" >&2; exit 1 ;;
+              esac
+            }
+
+            login_status=$(curl --silent --show-error \
+              --dump-header "$smoke_headers" --output "$smoke_body" \
+              --write-out '%{http_code}' https://skin.taixue.cc/auth/login)
+            case "$login_status" in
+              200)
+                grep -F 'data-taixue-recovery' "$smoke_body"
+                grep -F 'href="https://auth.taixue.cc/recover"' "$smoke_body"
+                ;;
+              302) assert_unified_login_redirect "$smoke_headers" ;;
+              *) echo "Unexpected login status: $login_status" >&2; exit 1 ;;
+            esac
+
+            local_status=$(curl --silent --show-error \
+              --dump-header "$smoke_headers" --output "$smoke_body" \
+              --write-out '%{http_code}' 'https://skin.taixue.cc/auth/login?local=1')
+            case "$local_status" in
+              200)
+                grep -F 'data-taixue-recovery' "$smoke_body"
+                grep -F 'href="https://auth.taixue.cc/recover"' "$smoke_body"
+                ;;
+              302) assert_unified_login_redirect "$smoke_headers" ;;
+              *) echo "Unexpected local-recovery status: $local_status" >&2; exit 1 ;;
+            esac
+
+            forgot_status=$(curl --silent --show-error \
+              --dump-header "$smoke_headers" --output "$smoke_body" \
+              --write-out '%{http_code}' https://skin.taixue.cc/auth/forgot)
+            case "$forgot_status" in
+              200) ;;
+              302) assert_recovery_redirect "$smoke_headers" ;;
+              *) echo "Unexpected recovery status: $forgot_status" >&2; exit 1 ;;
+            esac
             [ "$(curl --silent --output /dev/null --write-out '%{http_code}' \
               https://skin.taixue.cc/auth/taixue/ready)" = 204 ]
 
