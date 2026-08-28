@@ -9,15 +9,11 @@ class OidcClient
 {
     public const BASE_SCOPES = 'openid profile blessing_skin';
 
-    private const FLOW_TTL_SECONDS = 600;
-
-    private const SENSITIVE_INTENTS = ['unlink', 'local_password'];
-
     public function __construct(private IdTokenVerifier $tokenVerifier)
     {
     }
 
-    public function start(string $intent, ?int $uid = null)
+    public function start()
     {
         $this->assertConfigured();
 
@@ -28,14 +24,13 @@ class OidcClient
             'state' => $state,
             'nonce' => $nonce,
             'verifier' => $verifier,
-            'intent' => $intent,
-            'uid' => $uid,
+            'intent' => 'login',
             'created_at' => time(),
         ]);
 
         $parameters = [
             'client_id' => $this->clientId(),
-            'redirect_uri' => route('taixue-oidc.callback'),
+            'redirect_uri' => $this->redirectUri(),
             'response_type' => 'code',
             'scope' => self::scopesFor(filter_var(
                 env('TAIXUE_OIDC_AUTO_REGISTER', false),
@@ -43,15 +38,9 @@ class OidcClient
             )),
             'state' => $state,
             'nonce' => $nonce,
-            'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '='),
+            'code_challenge' => self::pkceChallenge($verifier),
             'code_challenge_method' => 'S256',
         ];
-        if (in_array($intent, self::SENSITIVE_INTENTS, true)) {
-            // These actions change the account recovery boundary. A remembered
-            // SSO session is insufficient; require fresh Taixue authentication.
-            $parameters['prompt'] = 'login';
-            $parameters['max_age'] = 0;
-        }
         $query = http_build_query($parameters, '', '&', PHP_QUERY_RFC3986);
 
         return redirect($this->issuer().'/oauth2/auth?'.$query);
@@ -59,17 +48,11 @@ class OidcClient
 
     public function complete(): array
     {
-        $flow = session()->get('taixue_oidc_flow');
-        if (!is_array($flow)) {
+        try {
+            $flow = PendingOidcFlow::validate(session()->get('taixue_oidc_flow'));
+        } catch (OidcFlowException $error) {
             session()->forget('taixue_oidc_flow');
-            throw new OidcFlowException('flow_expired', '登录请求已失效，请重新开始。');
-        }
-        $now = time();
-        $createdAt = filter_var($flow['created_at'] ?? null, FILTER_VALIDATE_INT);
-        if ($createdAt === false || $createdAt <= 0 || $createdAt > $now + 60 ||
-            $now - $createdAt > self::FLOW_TTL_SECONDS) {
-            session()->forget('taixue_oidc_flow');
-            throw new OidcFlowException('flow_expired', '登录请求已失效，请重新开始。');
+            throw $error;
         }
         $expectedState = $flow['state'] ?? null;
         $returnedState = request('state');
@@ -96,7 +79,7 @@ class OidcClient
             ->post($this->issuer().'/oauth2/token', [
                 'grant_type' => 'authorization_code',
                 'code' => $code,
-                'redirect_uri' => route('taixue-oidc.callback'),
+                'redirect_uri' => $this->redirectUri(),
                 'code_verifier' => $flow['verifier'],
             ]);
         if (!$response->successful()) {
@@ -108,14 +91,6 @@ class OidcClient
             throw new OidcFlowException('id_token_missing', '太学账号没有返回身份令牌。');
         }
         $claims = $this->verifyIdToken($idToken, (string) $flow['nonce']);
-        if (in_array($flow['intent'] ?? '', self::SENSITIVE_INTENTS, true)) {
-            FreshAuthentication::assertClaims(
-                $claims,
-                (int) ($flow['created_at'] ?? 0),
-                time()
-            );
-        }
-
         return ['flow' => $flow, 'claims' => $claims];
     }
 
@@ -140,6 +115,30 @@ class OidcClient
     public static function standardPasswordRecoveryUrl(string $issuer): string
     {
         return self::normalizeIssuer($issuer).'/recover';
+    }
+
+    public static function pkceChallenge(string $verifier): string
+    {
+        if (preg_match('/\A[A-Za-z0-9._~-]{43,128}\z/D', $verifier) !== 1) {
+            throw new OidcFlowException('pkce_verifier_invalid', '登录请求的 PKCE 校验参数无效。');
+        }
+
+        return rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+    }
+
+    public static function validateRedirectUri(string $redirectUri): string
+    {
+        $redirectUri = trim($redirectUri);
+        $parts = parse_url($redirectUri);
+        if (!filter_var($redirectUri, FILTER_VALIDATE_URL) || !is_array($parts) ||
+            strtolower((string) ($parts['scheme'] ?? '')) !== 'https' ||
+            ($parts['host'] ?? '') === '' || ($parts['path'] ?? '') === '' ||
+            isset($parts['user']) || isset($parts['pass']) ||
+            isset($parts['query']) || isset($parts['fragment'])) {
+            throw new OidcFlowException('redirect_uri_invalid', '太学账号回调地址配置无效。');
+        }
+
+        return $redirectUri;
     }
 
     private function verifyIdToken(string $token, string $nonce): array
@@ -179,6 +178,7 @@ class OidcClient
         if ($this->clientId() === '' || $this->clientSecret() === '') {
             throw new OidcFlowException('client_not_configured', '太学账号登录尚未完成配置。');
         }
+        $this->redirectUri();
     }
 
     private function issuer(): string
@@ -209,6 +209,11 @@ class OidcClient
     private function clientSecret(): string
     {
         return (string) env('TAIXUE_OIDC_CLIENT_SECRET', '');
+    }
+
+    private function redirectUri(): string
+    {
+        return self::validateRedirectUri((string) env('TAIXUE_OIDC_REDIRECT_URI', ''));
     }
 
     private function randomUrlSafe(int $bytes): string

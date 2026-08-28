@@ -7,5 +7,13 @@
   {% if request_id %}
     <p class="text-muted">请求编号：<code>{{ request_id }}</code></p>
   {% endif %}
-  <a class="btn btn-outline-primary btn-block" href="{{ url('/auth/login') }}">重新登录</a>
+  <a class="btn btn-primary btn-block" href="{{ retry_url }}">重试太学统一登录</a>
+  {% if local_recovery_url %}
+    <a class="btn btn-outline-secondary btn-block" href="{{ local_recovery_url }}">
+      使用原皮肤站账号恢复登录
+    </a>
+    <small class="mt-2 d-block text-muted">
+      此入口仅用于统一身份迁移异常时恢复访问，不会修改或合并账号。
+    </small>
+  {% endif %}
 {% endblock %}

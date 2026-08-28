@@ -26,4 +26,19 @@ class OidcSession
             'checked_at' => 0,
         ]);
     }
+
+    public static function belongsToUser(mixed $provenance, mixed $authenticatedUid): bool
+    {
+        if (!is_array($provenance)) {
+            return false;
+        }
+        $sessionUid = filter_var($provenance['uid'] ?? null, FILTER_VALIDATE_INT);
+        $currentUid = filter_var($authenticatedUid, FILTER_VALIDATE_INT);
+        $subject = $provenance['subject'] ?? null;
+
+        return $sessionUid !== false && $sessionUid > 0 &&
+            $currentUid !== false && $currentUid > 0 &&
+            $sessionUid === $currentUid &&
+            is_string($subject) && preg_match('/^[0-9]{1,20}$/D', $subject) === 1;
+    }
 }

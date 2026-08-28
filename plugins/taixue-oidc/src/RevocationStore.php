@@ -28,6 +28,7 @@ class RevocationStore
                 'jti' => $jti,
                 'subject' => $subject,
                 'sid' => $sid,
+                'event_type' => $eventType,
                 'revoked_at' => $now,
                 'purge_after' => $now->copy()->addMinutes($retentionMinutes),
                 'created_at' => $now,

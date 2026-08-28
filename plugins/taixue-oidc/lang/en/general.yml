@@ -5,3 +5,7 @@ admin-menu: Taixue Account Migration
 recovery:
   taixue: Recover Taixue unified-account password
   hint: If you use a legacy skin-site password, choose “Forgot password?” above.
+player:
+  managed-title: Player identity is managed by Taixue Account
+  managed-description: You can still change or clear skins and capes. Player names and bindings can only be repaired by an authorized administrator.
+  settings-label: Open unified account

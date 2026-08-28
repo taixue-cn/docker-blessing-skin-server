@@ -7,10 +7,13 @@ class EndpointFailure
     private const OPERATIONAL_REASONS = [
         'client_not_configured',
         'coordinated_logout_not_configured',
+        'create_endpoint_disabled',
         'id_token_missing',
         'issuer_invalid',
         'jwks_unavailable',
         'local_account_missing',
+        'provisioning_not_configured',
+        'provisioning_unavailable',
         'token_exchange_failed',
     ];
 

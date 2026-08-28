@@ -11,6 +11,10 @@ class OidcSessionGuard
 {
     private const CHECK_INTERVAL_SECONDS = 30;
 
+    public function __construct(private OidcAudit $audit)
+    {
+    }
+
     public function handle($request, Closure $next)
     {
         $session = $request->session();
@@ -23,7 +27,8 @@ class OidcSessionGuard
         $subject = $provenance['subject'] ?? null;
         $authenticatedAt = filter_var($provenance['authenticated_at'] ?? null, FILTER_VALIDATE_INT);
         $checkedAt = filter_var($provenance['checked_at'] ?? 0, FILTER_VALIDATE_INT);
-        if ($uid === false || $uid <= 0 || (int) Auth::id() !== $uid ||
+        if (!OidcSession::belongsToUser($provenance, Auth::id()) ||
+            $uid === false || $uid <= 0 ||
             !is_string($subject) || $subject === '' || $authenticatedAt === false || $authenticatedAt <= 0) {
             return $this->logout($request);
         }
@@ -42,7 +47,7 @@ class OidcSessionGuard
             : null;
         $authenticatedAtValue = now()->setTimestamp($authenticatedAt);
         $nowValue = now()->setTimestamp($now);
-        $revoked = DB::table('taixue_oidc_revocations')
+        $revocations = DB::table('taixue_oidc_revocations')
             ->where('revoked_at', '>=', $authenticatedAtValue)
             ->where('purge_after', '>', $nowValue)
             ->where(function ($query) use ($subject, $sid) {
@@ -58,8 +63,40 @@ class OidcSessionGuard
                     $query->orWhere('sid', $sid);
                 }
             })
-            ->exists();
-        if ($revoked) {
+            ->orderByDesc('revoked_at')
+            ->get(['event_type']);
+        if (!$revocations->isEmpty()) {
+            $sources = [];
+            foreach ($revocations as $revocation) {
+                $source = in_array($revocation->event_type ?? null, [
+                    'BACKCHANNEL_LOGOUT',
+                    'COORDINATED_LOGOUT',
+                ], true) ? $revocation->event_type : 'UNKNOWN';
+                $sources[$source] = true;
+            }
+            // A stored revocation proves only that the provider notification
+            // arrived. Record the separate, user-resolved evidence that a live
+            // OIDC session actually observed it and was invalidated. A password
+            // change can deliver provider and coordinated revocations together,
+            // so retain one bounded evidence event for every matching source
+            // before invalidating the session once. Never retain a cookie,
+            // logout token, jti, or sid value here.
+            foreach (array_keys($sources) as $source) {
+                try {
+                    $this->audit->record('SESSION_REVOKED', 'SUCCEEDED', $uid, $subject, [
+                        'reason' => 'revocation_match',
+                        'source' => $source,
+                        'sid_present' => $sid !== null,
+                    ]);
+                } catch (\Throwable $auditError) {
+                    // Revocation remains fail-closed even when its evidence sink
+                    // is unavailable. The critical log makes acceptance fail
+                    // without leaving the revoked session alive.
+                    report($auditError);
+                    logger()->critical('Taixue OIDC session revoked without durable audit evidence');
+                }
+            }
+
             return $this->logout($request);
         }
 
